@@ -1,0 +1,21 @@
+{
+  "name": "even-market-g2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "pack": "npm run build && npx @evenrealities/evenhub-cli pack app.json dist",
+    "pack:check": "npx @evenrealities/evenhub-cli pack app.json dist --check",
+    "qr": "npx @evenrealities/evenhub-cli qr --port 5173 --path /"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0"
+  }
+}

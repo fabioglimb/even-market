@@ -1,0 +1,403 @@
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --green: #26a69a;
+  --red: #ef5350;
+  --accent: #58a6ff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+#app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* Navigation */
+.nav-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.nav-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+.nav-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.nav-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* API banner */
+.api-banner {
+  background: #1c1f26;
+  border: 1px solid #f0ad4e;
+  color: #f0ad4e;
+  padding: 10px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+/* Screen header */
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.screen-header h1 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.back-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.back-btn:hover {
+  border-color: var(--accent);
+}
+
+/* Add ticker */
+.add-ticker {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.add-ticker input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  width: 160px;
+  text-transform: uppercase;
+}
+
+.add-ticker button {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Watchlist table */
+.watchlist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.watchlist-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.watchlist-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.watchlist-table tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.watchlist-table tbody tr:hover {
+  background: var(--surface);
+}
+
+.watchlist-table .sym {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.green { color: var(--green); }
+.red { color: var(--red); }
+
+.remove-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.remove-btn:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* Chart screen */
+.chart-header {
+  margin-bottom: 16px;
+}
+
+.chart-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.chart-title h2 {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.chart-price {
+  font-size: 18px;
+  color: var(--text-dim);
+}
+
+.chart-ranges {
+  display: flex;
+  gap: 6px;
+}
+
+.range-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.range-btn:hover {
+  color: var(--text);
+}
+
+.range-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+#chart-canvas {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: block;
+}
+
+.chart-info {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-height: 20px;
+}
+
+/* Settings */
+.settings-screen {
+  max-width: 500px;
+}
+
+.settings-group {
+  margin-bottom: 20px;
+}
+
+.settings-group label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.settings-group input,
+.settings-group select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  width: 100%;
+}
+
+.settings-group small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.settings-group a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.data-source-info {
+  color: var(--green);
+  font-size: 14px;
+  padding: 8px 0;
+}
+
+/* Watchlist pills */
+.watchlist-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-remove {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+}
+
+.pill-remove:hover {
+  color: var(--red);
+}
+
+/* Status */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.status-dot.connected {
+  background: var(--green);
+}
+
+/* How It Works */
+.how-it-works {
+  max-width: 640px;
+}
+
+.how-section {
+  margin-bottom: 24px;
+}
+
+.how-section h2 {
+  font-size: 16px;
+  color: var(--text);
+  margin: 0 0 8px 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.how-section p {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 4px 0;
+}
+
+.how-section ul {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.6;
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.how-table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.how-table td {
+  padding: 4px 16px 4px 0;
+  color: var(--text-dim);
+}
+
+.how-table kbd {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Content */
+.content {
+  min-height: 400px;
+}
