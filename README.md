@@ -32,7 +32,7 @@ Real-time market watchlist, interactive candlestick charts, and candle-by-candle
 
 ### Demo
 
-https://github.com/user-attachments/assets/EvenMarkets.mov
+https://github.com/fabioglimb/even-market/raw/main/media/demo.mp4
 
 ---
 
