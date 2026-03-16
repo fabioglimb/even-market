@@ -1,0 +1,8 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": null,
+  "rewrites": [
+    { "source": "/yf-api/(.*)", "destination": "/api/yf-api/$1" }
+  ]
+}
