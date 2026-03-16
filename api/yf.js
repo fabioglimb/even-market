@@ -3,54 +3,52 @@ const https = require('https');
 module.exports = (req, res) => {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', '*');
     return res.status(200).end();
   }
 
-  // Build the Yahoo Finance path from query params
-  // The rewrite sends /yf-api/v8/finance/chart/AAPL?range=3mo -> /api/yf?p=/v8/finance/chart/AAPL&range=3mo
-  const basePath = req.query.p || '/';
-  const params = new URLSearchParams();
-  for (const [key, val] of Object.entries(req.query)) {
-    if (key !== 'p') params.set(key, val);
+  try {
+    // /api/yf?p=/v8/finance/chart/AAPL&range=3mo&interval=1d
+    // Reconstruct: /v8/finance/chart/AAPL?range=3mo&interval=1d
+    const url = new URL(req.url, 'https://localhost');
+    const p = url.searchParams.get('p') || '/';
+    url.searchParams.delete('p');
+    const remaining = url.searchParams.toString();
+    const fullPath = remaining ? p + '?' + remaining : p;
+
+    const hostname = Math.random() > 0.5
+      ? 'query1.finance.yahoo.com'
+      : 'query2.finance.yahoo.com';
+
+    const proxyReq = https.request({
+      hostname,
+      port: 443,
+      path: fullPath,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+        'Accept': 'application/json',
+        'Referer': 'https://finance.yahoo.com/',
+        'Origin': 'https://finance.yahoo.com',
+      },
+    }, (proxyRes) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
+      res.status(proxyRes.statusCode || 502);
+      proxyRes.pipe(res);
+    });
+
+    proxyReq.on('error', () => {
+      res.status(502).json({ error: 'proxy error' });
+    });
+
+    proxyReq.setTimeout(8000, () => {
+      proxyReq.destroy();
+      res.status(504).json({ error: 'timeout' });
+    });
+
+    proxyReq.end();
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
-  const qs = params.toString();
-  const fullPath = qs ? `${basePath}?${qs}` : basePath;
-
-  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
-  const hostname = hosts[Math.floor(Math.random() * hosts.length)];
-
-  const options = {
-    hostname,
-    port: 443,
-    path: fullPath,
-    method: 'GET',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-      'Accept': 'application/json',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': 'https://finance.yahoo.com/',
-      'Origin': 'https://finance.yahoo.com',
-    },
-  };
-
-  const proxyReq = https.request(options, (proxyRes) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
-    res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
-    res.status(proxyRes.statusCode || 502);
-    proxyRes.pipe(res);
-  });
-
-  proxyReq.on('error', (err) => {
-    res.status(502).json({ error: err.message });
-  });
-
-  proxyReq.setTimeout(8000, () => {
-    proxyReq.destroy();
-    res.status(504).json({ error: 'Timeout' });
-  });
-
-  proxyReq.end();
 };
