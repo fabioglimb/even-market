@@ -53,6 +53,7 @@ export interface AppState {
   highlightedCandleIndex: number;
   candleFlashPhase: boolean;
   tfNavActive: boolean;
+  settingsEditActive: boolean;
   settings: Settings;
   connectionStatus: 'connected' | 'connecting' | 'disconnected';
   lastError: string | null;
@@ -85,6 +86,7 @@ export const initialState: AppState = {
   highlightedCandleIndex: -1,
   candleFlashPhase: false,
   tfNavActive: false,
+  settingsEditActive: false,
   settings: { ...DEFAULT_SETTINGS },
   connectionStatus: 'disconnected',
   lastError: null,

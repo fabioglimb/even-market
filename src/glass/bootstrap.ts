@@ -50,12 +50,10 @@ async function flushText(state: AppState): Promise<void> {
     const text = hub.currentLayout === 'chart'
       ? buildChartTopText(state)
       : buildFullText(state);
-    // Fire and don't wait for BLE ack — reduces perceived lag
     hub.updateText(text).catch(() => {}).finally(() => {
       textInFlight = false;
       if (textPending) {
         textPending = false;
-        // Send latest state (not stale)
         flushText(store.getState()).catch(() => {});
       }
     });
@@ -83,6 +81,10 @@ async function flushImages(state: AppState): Promise<void> {
   imgDirty = false;
   try {
     const data = getDisplayData(state);
+
+    // Skip if no chart data yet — avoid broken blank frames
+    if (!data.chartData || data.chartData.candles.length === 0) return;
+
     const canvas = renderToCanvasDirect(data);
 
     // Encode all tiles, find the next one that changed
@@ -126,7 +128,16 @@ async function flushImages(state: AppState): Promise<void> {
 function flushDisplay(state: AppState, prev?: AppState): void {
   flushText(state).catch(() => {});
   if (getDesiredLayout(state) === 'chart') {
-    // Always try flushing images on chart screen — hash check skips unchanged tiles
+    // Reset to left→right on any visual data change
+    if (prev && (
+      prev.screen !== state.screen ||
+      prev.candles !== state.candles ||
+      prev.selectedGraphicId !== state.selectedGraphicId ||
+      prev.settings !== state.settings
+    )) {
+      nextTileIdx = 0;
+      tileHashes.clear();
+    }
     flushImages(state).catch(() => {});
   }
 }
@@ -190,15 +201,41 @@ function buildFullText(state: AppState): string {
     case 'settings': {
       const s = state.settings;
       const hi = state.highlightedIndex;
+      const editing = state.settingsEditActive;
+      const flash = state.candleFlashPhase ? '\u25CF' : '\u25CB';
       const lines: string[] = [];
 
       lines.push(`SETTINGS${' '.repeat(19)}${time}`);
       lines.push('');
-      lines.push(`${hi === 0 ? '\u25B6' : '  '} Refresh: ${s.refreshInterval}s`);
-      lines.push(`${hi === 1 ? '\u25B6' : '  '} Chart: ${s.chartType === 'sparkline' ? 'Sparkline' : 'Candles'}`);
+
+      // Refresh row
+      const refreshLabel = `${s.refreshInterval}s`;
+      if (editing && hi === 0) {
+        lines.push(`${flash} Refresh:  \u25C0 [${refreshLabel}] \u25B6`);
+      } else if (hi === 0) {
+        lines.push(`\u25B6 Refresh:  ${refreshLabel}`);
+      } else {
+        lines.push(`   Refresh:  ${refreshLabel}`);
+      }
+
+      // Chart type row
+      const chartLabel = s.chartType === 'sparkline' ? 'Sparkline' : 'Candles';
+      if (editing && hi === 1) {
+        lines.push(`${flash} Chart:    \u25C0 [${chartLabel}] \u25B6`);
+      } else if (hi === 1) {
+        lines.push(`\u25B6 Chart:    ${chartLabel}`);
+      } else {
+        lines.push(`   Chart:    ${chartLabel}`);
+      }
+
       lines.push('');
-      lines.push('  Tap to cycle value');
-      lines.push('  Double-tap to go back');
+      if (editing) {
+        lines.push('  Scroll to change value');
+        lines.push('  Tap or double-tap to confirm');
+      } else {
+        lines.push('  Tap to edit');
+        lines.push('  Double-tap to go back');
+      }
       return lines.join('\n');
     }
 
@@ -252,6 +289,7 @@ function shouldUpdateDisplay(state: AppState, prev: AppState): boolean {
   if (state.candleNavActive !== prev.candleNavActive) return true;
   if (state.highlightedCandleIndex !== prev.highlightedCandleIndex) return true;
   if (state.tfNavActive !== prev.tfNavActive) return true;
+  if (state.settingsEditActive !== prev.settingsEditActive) return true;
   if (state.candleFlashPhase !== prev.candleFlashPhase) return true;
   if (state.settings !== prev.settings) return true;
   if (state.loading !== prev.loading) return true;
@@ -277,7 +315,8 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     }
   }
 
-  const needsFlash = state.screen === 'stock-detail' && (state.candleNavActive || state.tfNavActive);
+  const needsFlash = (state.screen === 'stock-detail' && (state.candleNavActive || state.tfNavActive))
+    || (state.screen === 'settings' && state.settingsEditActive);
   if (needsFlash && !flashTimer) {
     flashTimer = setInterval(() => {
       store.dispatch({ type: 'CANDLE_FLASH_TICK' });

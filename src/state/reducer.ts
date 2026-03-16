@@ -34,11 +34,15 @@ export function reduce(state: AppState, action: Action): AppState {
         };
       }
       if (state.screen === 'settings') {
+        if (state.settingsEditActive) {
+          return { ...state, settingsEditActive: false };
+        }
         return {
           ...state,
           screen: 'watchlist',
           selectedGraphicId: null,
           highlightedIndex: 0,
+          settingsEditActive: false,
         };
       }
       return state;
@@ -56,6 +60,10 @@ export function reduce(state: AppState, action: Action): AppState {
         const current = state.highlightedCandleIndex < 0 ? maxCandle : state.highlightedCandleIndex;
         const next = Math.max(0, Math.min(maxCandle, current + delta));
         return { ...state, highlightedCandleIndex: next };
+      }
+      // Settings edit mode: scroll cycles the value
+      if (state.screen === 'settings' && state.settingsEditActive) {
+        return cycleSettingsValue(state, action.direction === 'down' ? 1 : -1);
       }
       const maxIndex = getMaxIndex(state);
       const delta = action.direction === 'down' ? 1 : -1;
@@ -92,7 +100,12 @@ export function reduce(state: AppState, action: Action): AppState {
         }
       }
       if (state.screen === 'settings') {
-        return cycleSettingsValue(state);
+        if (state.settingsEditActive) {
+          // Tap confirms — exit edit mode
+          return { ...state, settingsEditActive: false };
+        }
+        // Tap enters edit mode for the highlighted setting
+        return { ...state, settingsEditActive: true };
       }
       if (state.screen === 'stock-detail') {
         if (state.tfNavActive) {
@@ -259,19 +272,17 @@ function setGraphicResolution(state: AppState, graphicId: string, resolution: Ch
 const REFRESH_OPTIONS = [5, 10, 15, 30, 60];
 const CHART_TYPES: Array<'sparkline' | 'candles'> = ['sparkline', 'candles'];
 
-function cycleSettingsValue(state: AppState): AppState {
+function cycleSettingsValue(state: AppState, direction = 1): AppState {
   const s = state.settings;
   switch (state.highlightedIndex) {
     case 0: {
-      // Cycle refresh interval
       const idx = REFRESH_OPTIONS.indexOf(s.refreshInterval);
-      const next = REFRESH_OPTIONS[(idx + 1) % REFRESH_OPTIONS.length]!;
+      const next = REFRESH_OPTIONS[(idx + direction + REFRESH_OPTIONS.length) % REFRESH_OPTIONS.length]!;
       return { ...state, settings: { ...s, refreshInterval: next } };
     }
     case 1: {
-      // Toggle chart type
       const idx = CHART_TYPES.indexOf(s.chartType);
-      const next = CHART_TYPES[(idx + 1) % CHART_TYPES.length]!;
+      const next = CHART_TYPES[(idx + direction + CHART_TYPES.length) % CHART_TYPES.length]!;
       return { ...state, settings: { ...s, chartType: next } };
     }
     default:

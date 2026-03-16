@@ -45,7 +45,13 @@ export function cropScaleToIndexedPng(
   tile.height = th;
   const ctx = tile.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, tw, th);
+  // Fill black first (handles case where crop is smaller than tile)
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, tw, th);
+  // Draw crop at 1:1 — if sw < tw, right side stays black
+  const drawW = Math.min(sw, tw);
+  const drawH = Math.min(sh, th);
+  ctx.drawImage(canvas, sx, sy, drawW, drawH, 0, 0, drawW, drawH);
 
   const imgData = ctx.getImageData(0, 0, tw, th);
   const greyRGBA = rgbaToGreyscale4BitRGBA(imgData.data, tw * th);
