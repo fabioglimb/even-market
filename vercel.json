@@ -2,6 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/yf-api/(.*)", "destination": "/api/yf?p=/$1" }
+    { "source": "/yf-api/(.*)", "destination": "/api/yf.mjs?p=/$1" }
   ]
 }

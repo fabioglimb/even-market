@@ -1,14 +1,14 @@
-const https = require('https');
+import https from 'https';
 
-module.exports = (req, res) => {
+export default function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    return res.status(200).end();
+    res.statusCode = 200;
+    res.end();
+    return;
   }
 
   try {
-    // /api/yf?p=/v8/finance/chart/AAPL&range=3mo&interval=1d
-    // Reconstruct: /v8/finance/chart/AAPL?range=3mo&interval=1d
     const url = new URL(req.url, 'https://localhost');
     const p = url.searchParams.get('p') || '/';
     url.searchParams.delete('p');
@@ -34,21 +34,27 @@ module.exports = (req, res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
       res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
-      res.status(proxyRes.statusCode || 502);
+      res.statusCode = proxyRes.statusCode || 502;
       proxyRes.pipe(res);
     });
 
     proxyReq.on('error', () => {
-      res.status(502).json({ error: 'proxy error' });
+      res.setHeader('Content-Type', 'application/json');
+      res.statusCode = 502;
+      res.end(JSON.stringify({ error: 'proxy error' }));
     });
 
     proxyReq.setTimeout(8000, () => {
       proxyReq.destroy();
-      res.status(504).json({ error: 'timeout' });
+      res.setHeader('Content-Type', 'application/json');
+      res.statusCode = 504;
+      res.end(JSON.stringify({ error: 'timeout' }));
     });
 
     proxyReq.end();
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    res.setHeader('Content-Type', 'application/json');
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err) }));
   }
-};
+}
