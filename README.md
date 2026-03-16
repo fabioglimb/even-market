@@ -4,26 +4,30 @@ Real-time market watchlist, interactive candlestick charts, and candle-by-candle
 
 ![EvenMarket](media/hero.png)
 
+**[Live Demo →](https://even-market.vercel.app)**
+
 ---
 
 ## Features
 
-- **Multi-asset watchlist** — Stocks (AAPL, TSLA), Forex (EURUSD, GBPJPY), Commodities (XAUUSD, OIL) all in one list
-- **Graphics model** — Each watchlist entry is a *graphic*: a symbol + timeframe pair. Track AAPL on Daily and 1-minute simultaneously
-- **Interactive candle navigation** — Scroll candle-by-candle on glasses with flashing highlight, OHLCV + datetime updates per candle
-- **Per-graphic timeframe cycling** — Tap to cycle through M1 / M5 / M15 / H1 / D / W / Mo without leaving the detail screen
-- **Dual rendering** — Synchronized glasses display (576x288 monochrome canvas pushed via Even Hub SDK) and full-color web dashboard
-- **Sparkline & candlestick charts** — Choose between area sparkline or mini candle charts on glasses
-- **No API key required** — Uses Yahoo Finance with a built-in Vite proxy for CORS-free development
+- **Multi-asset watchlist** — Stocks, Forex, Commodities, Crypto, ETFs all in one list
+- **Graphics model** — Each entry is a *graphic*: symbol + timeframe pair. Track AAPL on Daily and 1-min simultaneously
+- **3-column glasses layout** — Pixel-aligned Symbol | Price | Change columns using `@jappyjan/even-better-sdk`
+- **Interactive candle navigation** — Scroll candle-by-candle with OHLCV table below the chart
+- **Per-graphic timeframe cycling** — Tap [TF] to cycle M1 / M5 / M15 / H1 / D / W / Mo
+- **Dual rendering** — Glasses display (tiled images + text containers) and web dashboard (React 19 + Tailwind v4)
+- **Chart zoom/pan** — Mouse wheel zoom, click-drag pan, pinch-to-zoom on mobile, infinite scroll for historical data
+- **Home screen** — Splash chart image + Watchlist/Settings menu on glasses
+- **Professional web UI** — Amber/gold dark theme, mobile card stack, segmented controls
+- **No API key required** — Yahoo Finance with serverless proxy on Vercel
 - **Auto-refresh** — Configurable polling interval (5s–60s)
-- **Background persistence** — Audio context + Web Locks keep the app alive when backgrounded
 
 ---
 
 ## Screenshots
 
-| Watchlist | Stock Detail |
-|-----------|-------------|
+| Watchlist (Web + Glasses) | Chart Detail (Web + Glasses) |
+|---------------------------|------------------------------|
 | ![Watchlist](media/watchlist.png) | ![Detail](media/detail.png) |
 
 | Candle Navigation | Settings |
@@ -39,11 +43,15 @@ https://github.com/fabioglimb/even-market/raw/main/media/demo.mp4
 ## Glasses Navigation
 
 ```
+HOME
+  Scroll up/down    Toggle between Watchlist and Settings
+  Tap               Enter selected screen
+  Double-tap        (no action)
+
 WATCHLIST
-  Scroll up/down    Navigate between graphics
+  Scroll up/down    Navigate between graphics (sliding window)
   Tap               Open selected graphic detail
-  Tap [Settings]    Open settings screen
-  Double-tap        (no action on watchlist)
+  Double-tap        Back to home
 
 STOCK DETAIL
   Scroll up/down    Move between [TF] and [NAV] action buttons
@@ -55,21 +63,17 @@ TIMEFRAME NAVIGATION
   The [TF] button blinks to show the mode is active.
   Scroll up/down    Cycle through M1 / M5 / M15 / H1 / D / W / Mo
   Tap               Confirm selection and exit TF nav
-  Double-tap        Exit TF nav
 
 CANDLE NAVIGATION
-  The [NAV] button blinks to show the mode is active.
-  Scroll up/down    Move candle-by-candle (viewport pans automatically)
-  Tap               Exit candle nav (back to button mode)
-  Double-tap        Exit candle nav
-
-  The highlighted candle flashes (500ms solid / dotted cycle).
-  OHLCV and datetime update in real-time as you scroll.
+  Scroll up/down    Move through candles (inverted: down=newer, up=older)
+  Selected candle highlighted with ── divider lines
+  OHLCV table shows multiple candles at once
+  Tap               Exit candle nav
 
 SETTINGS
   Scroll up/down    Move between Refresh Interval and Chart Type
-  Tap               Cycle the selected setting value
-  Double-tap        Back to watchlist
+  Tap               Enter edit mode, scroll to change value
+  Double-tap        Back to home
 ```
 
 ---
@@ -102,7 +106,6 @@ Just type the symbol naturally — the app handles Yahoo Finance ticker conversi
 ### Development
 
 ```bash
-cd apps/even-market
 npm install
 npm run dev
 ```
@@ -119,21 +122,34 @@ Open `http://localhost:5173` in your browser. The web dashboard is fully functio
 | `c` | Toggle candle navigation |
 | `r` | Cycle timeframe resolution |
 
-### Build & Package
+### Build & Deploy
 
 ```bash
 npm run build          # TypeScript check + Vite production build
 npm run pack           # Build + package as .ehpk for Even Hub
-npm run pack:check     # Validate package without building
 ```
+
+### Deploy to Vercel
+
+The app is configured for Vercel with a serverless Yahoo Finance proxy:
+
+```bash
+git push origin main   # Auto-deploys to Vercel
+```
+
+Or deploy manually: connect the GitHub repo at [vercel.com](https://vercel.com) — it auto-detects the config.
 
 ### Deploy to Glasses
 
 ```bash
-npm run qr             # Generate QR code for sideloading
+npm run qr             # Generate QR code for local sideloading
 ```
 
-Scan the QR code with the Even Realities companion app to install on your G2 glasses.
+Or share the Vercel URL — scan the QR code or open the link in the Even Realities companion app:
+
+<p align="center">
+  <img src="media/qrcode.png" alt="QR Code" width="200" />
+</p>
 
 ---
 
@@ -142,105 +158,51 @@ Scan the QR code with the Even Realities companion app to install on your G2 gla
 ```
 src/
   state/
-    types.ts          GraphicEntry, AppState, Settings
-    actions.ts        Action union type (20 actions)
-    reducer.ts        Pure state transitions, candle nav logic
+    types.ts          Screen, AppState, Settings, GraphicEntry
+    actions.ts        Action union type
+    reducer.ts        Pure state transitions, home/watchlist/detail/settings
     selectors.ts      Display data formatting for glasses
     store.ts          Minimal Redux-like store with subscriptions
   data/
-    yahoo-finance.ts  Quote + candle fetching, symbol auto-mapping
-    poller.ts         Periodic quote refresh, candle caching
+    yahoo-finance.ts  Quote + candle fetching, period-based history loading
+    poller.ts         Periodic quote refresh, candle caching, older candle fetch
   glass/
-    bootstrap.ts      Orchestrator: store, poller, SDK bridge, flash timer
-    canvas-renderer.ts  576x288 canvas rendering, action buttons
-    chart-renderer.ts   Sparkline + mini candles with highlight/flash
-    bridge.ts         Even Hub SDK wrapper
-    composer.ts       Page layout composition for SDK
-    layout.ts         Display dimensions and chart area constants
-    png-utils.ts      Canvas to PNG byte array conversion
+    bootstrap.ts      Orchestrator: store, poller, SDK bridge, side effects
+    canvas-renderer.ts  Chart rendering (candles, sparkline, splash image)
+    bridge.ts         Even Better SDK + raw bridge hybrid for glasses display
+    layout.ts         Display dimensions, tile slots, container positions
+    png-utils.ts      4-bit greyscale PNG encoding via upng-js
   web/
-    main.ts           Web UI router
-    screens/
-      watchlist.ts    Table with symbol + timeframe + add form
-      chart.ts        Full interactive chart with hover crosshair
-      settings.ts     Configuration panel
-    styles.css        Dark theme styling
+    App.tsx           React router with NavBar
+    screens/          Watchlist, Chart, Settings, HowItWorks
+    components/
+      ui/             Card, Badge, Button, SegmentedControl, Table, Icons
+      shared/         NavBar, QuoteCard, QuoteRow, CandlestickChart, ChartInfo
+    contexts/         StoreProvider, PollerProvider
+    hooks/            useSelector, useDispatch, useQuotes, useGraphics
+    styles/app.css    Amber/gold dark theme tokens
   input/
     keyboard.ts       Keyboard bindings for web testing
     action-map.ts     Even Hub gesture to action mapping
-    gestures.ts       Tap/scroll debouncing
+    gestures.ts       Tap/scroll debouncing with text-update suppression
   utils/
     format.ts         Price, percent, volume, candle time formatting
     keep-alive.ts     Background persistence (audio + web locks)
   main.ts             Entry point: boots glasses + web + keyboard
-```
-
-### State Flow
-
-```
-User gesture (glasses scroll/tap)
-  -> action-map.ts (debounce + map to Action)
-  -> store.dispatch(action)
-  -> reducer.ts (pure state transition)
-  -> subscribers notified
-    -> selectors.ts (format DisplayData)
-    -> canvas-renderer.ts (draw to canvas)
-    -> bridge.ts (push PNG to glasses)
-    -> web UI (update HTML)
-  -> bootstrap.ts side effects (fetch candles, persist settings, manage flash timer)
+api/
+  yf.mjs              Vercel serverless Yahoo Finance proxy
 ```
 
 ---
 
-## Configuration
+## G2 Hardware Constraints
 
-### Default Watchlist
-
-The app ships with 5 default graphics:
-
-| Symbol | Timeframe |
-|--------|-----------|
-| AAPL | Daily |
-| GOOGL | Daily |
-| MSFT | Daily |
-| NVDA | Daily |
-| TSLA | Daily |
-
-Add more via the web dashboard or glasses settings screen.
-
-### Settings
-
-| Setting | Options | Default |
-|---------|---------|---------|
-| Refresh Interval | 5s, 10s, 15s, 30s, 60s | 15s |
-| Glass Chart Type | Sparkline, Candles | Sparkline |
-
-Settings persist to localStorage and auto-migrate from older formats.
-
----
-
-## Technical Details
-
-- **Display**: 576 x 288 pixels, monochrome (grayscale maps to green on G2 lenses)
-- **Font**: 22px Courier New, 28px line height
-- **Chart area**: 540 x 130 pixels, up to 30 candles visible with automatic viewport panning
-- **Candle flash**: 500ms interval alternating solid white / dashed outline
-- **Cache**: 60-second candle cache keyed by `symbol:resolution`
-- **Gesture debouncing**: 220ms tap cooldown, 56ms scroll debounce, 110ms post-tap scroll suppression
-
----
-
-## Roadmap
-
-- **Price alerts** — Set a price threshold on any graphic (e.g. AAPL > $260). Glasses notification triggers when the condition is met during polling. Simple alert model in state with configurable direction (above/below) and one-shot or repeating modes.
-
-- **Change coloring on glasses** — Use brightness to encode direction: brighter rows for positive change, dimmer for negative. Gives instant visual feedback on the watchlist without reading numbers.
-
-- **Watchlist scrolling** — Visible window that scrolls with the highlight when graphics exceed the ~6 rows that fit on the 288px display. Scroll indicator on the right edge showing position in the list.
-
-- **Portfolio tracking** — Attach quantity and average price to each graphic. Show per-position P&L on the detail screen and total portfolio value as a summary line at the top of the watchlist.
-
-- **Market status indicator** — Display open / closed / pre-market / after-hours state using the `marketState` field from Yahoo Finance. Dim the price row or show a badge when the market is closed so you know if data is stale.
+- **Max 4 containers per page** — every layout decision is constrained by this
+- **Image tiles**: 200x100 max, 3 tiles = 576x100 chart area
+- **Text containers**: proportional font, no text-align control
+- **Column alignment**: achieved via separate text containers at pixel positions (`@jappyjan/even-better-sdk`)
+- **Scroll bounce**: eliminated on Home/Watchlist/Settings via empty event-capture overlay pattern. Chart detail still bounces (4-container limit, no room for overlay).
+- **BLE throughput**: image updates throttled with hash-based diffing to skip unchanged tiles
 
 ---
 
