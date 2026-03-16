@@ -20,6 +20,7 @@ export interface DisplayData {
   showSplash?: boolean;
   chartData?: { closes: number[]; candles: import('./types').Candle[] };
   chartType?: 'sparkline' | 'candles';
+  resolution?: string;
   highlightedCandleIndex?: number;
   candleFlashPhase?: boolean;
   actionButtons?: ActionButton[];
@@ -140,6 +141,7 @@ function getStockDetailDisplay(state: AppState): DisplayData {
       ? { closes: state.candles.map((c) => c.close), candles: state.candles }
       : undefined,
     chartType: state.settings.chartType,
+    resolution: graphic.resolution,
     highlightedCandleIndex: state.candleNavActive ? state.highlightedCandleIndex : undefined,
     candleFlashPhase: state.candleFlashPhase,
     actionButtons,

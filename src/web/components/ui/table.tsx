@@ -1,13 +1,14 @@
 import * as React from 'react';
 import { cn } from '../../utils/cn';
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
+const Table = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <table
-      ref={ref}
-      className={cn('w-full border-collapse text-sm', className)}
-      {...props}
-    />
+    <div ref={ref} className="w-full overflow-x-auto rounded-xl border border-border bg-surface">
+      <table
+        className={cn('w-full border-collapse text-sm', className)}
+        {...props}
+      />
+    </div>
   ),
 );
 Table.displayName = 'Table';
@@ -16,7 +17,7 @@ const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
 >(({ className, ...props }, ref) => (
-  <thead ref={ref} className={cn('', className)} {...props} />
+  <thead ref={ref} className={cn('bg-surface-light/50', className)} {...props} />
 ));
 TableHeader.displayName = 'TableHeader';
 
@@ -32,7 +33,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
   ({ className, ...props }, ref) => (
     <tr
       ref={ref}
-      className={cn('cursor-pointer transition-colors hover:bg-surface', className)}
+      className={cn('cursor-pointer transition-colors hover:bg-surface-light border-b border-border/50 last:border-0', className)}
       {...props}
     />
   ),
@@ -46,7 +47,7 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      'text-left text-text-dim font-medium px-3 py-2 border-b border-border text-xs uppercase',
+      'text-left text-text-dim font-medium px-4 py-3 text-[11px] uppercase tracking-widest whitespace-nowrap',
       className,
     )}
     {...props}
@@ -60,7 +61,7 @@ const TableCell = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <td
     ref={ref}
-    className={cn('px-3 py-2.5 border-b border-border tabular-nums', className)}
+    className={cn('px-4 py-3 font-mono tabular-nums whitespace-nowrap', className)}
     {...props}
   />
 ));

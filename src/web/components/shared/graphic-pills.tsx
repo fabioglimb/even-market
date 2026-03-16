@@ -19,6 +19,7 @@ function GraphicPills({ graphics, onRemove }: GraphicPillsProps) {
           key={g.id}
           label={`${g.symbol} (${RES_LABELS[g.resolution] ?? g.resolution})`}
           onRemove={() => onRemove(g.id)}
+          className="font-mono"
         />
       ))}
     </div>

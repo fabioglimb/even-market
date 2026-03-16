@@ -5,9 +5,8 @@ import { useDispatch } from '../hooks/use-store';
 import { Page } from '../components/shared/page';
 import { ScreenHeader } from '../components/shared/screen-header';
 import { SettingsGroup } from '../components/shared/settings-group';
-import { GraphicPills } from '../components/shared/graphic-pills';
+import { SegmentedControl } from '../components/ui/segmented-control';
 import { StatusDot } from '../components/ui/status-dot';
-import { Select } from '../components/ui/select';
 
 function SettingsScreen() {
   const dispatch = useDispatch();
@@ -18,12 +17,8 @@ function SettingsScreen() {
     <Page className="max-w-[500px]">
       <ScreenHeader title="Settings" />
 
-      <SettingsGroup label="Data Source">
-        <div className="text-positive text-sm py-2">Yahoo Finance (no API key required)</div>
-      </SettingsGroup>
-
       <SettingsGroup label="Refresh Interval">
-        <Select
+        <SegmentedControl
           options={[5, 10, 15, 30, 60].map((v) => ({ value: String(v), label: `${v}s` }))}
           value={String(settings.refreshInterval)}
           onValueChange={(val) =>
@@ -33,7 +28,7 @@ function SettingsScreen() {
       </SettingsGroup>
 
       <SettingsGroup label="Glass Chart Type">
-        <Select
+        <SegmentedControl
           options={[
             { value: 'sparkline', label: 'Sparkline' },
             { value: 'candles', label: 'Candles' },
@@ -45,17 +40,10 @@ function SettingsScreen() {
         />
       </SettingsGroup>
 
-      <SettingsGroup label="Graphics">
-        <GraphicPills
-          graphics={settings.graphics}
-          onRemove={(graphicId) => dispatch({ type: 'GRAPHIC_REMOVE', graphicId })}
-        />
-      </SettingsGroup>
-
       <SettingsGroup label="Connection Status">
         <div className="flex items-center gap-2 text-sm">
           <StatusDot connected={connectionStatus === 'connected'} />
-          <span>Glasses: {connectionStatus}</span>
+          <span className="text-text-dim">Glasses: {connectionStatus}</span>
         </div>
       </SettingsGroup>
     </Page>

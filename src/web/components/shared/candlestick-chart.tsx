@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import type { Candle, ChartResolution } from '../../../state/types';
 import { formatPrice, formatCandleTime } from '../../../utils/format';
 
@@ -6,6 +6,8 @@ const CHART_W = 800;
 const CHART_H = 400;
 const VOLUME_H = 80;
 const PADDING = { top: 20, right: 60, bottom: 30, left: 10 };
+const MIN_VISIBLE = 10;
+const MAX_VISIBLE = 500;
 
 interface CandlestickChartProps {
   candles: Candle[];
@@ -15,32 +17,152 @@ interface CandlestickChartProps {
 
 function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [viewStart, setViewStart] = useState(0);
+  const [viewCount, setViewCount] = useState(0);
+  const dragRef = useRef<{ startX: number; startViewStart: number } | null>(null);
+
+  // Reset viewport when candles change
+  useEffect(() => {
+    setViewStart(0);
+    setViewCount(candles.length);
+  }, [candles.length]);
+
+  const clampView = useCallback(
+    (start: number, count: number) => {
+      const c = Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, count, candles.length));
+      const s = Math.max(0, Math.min(candles.length - c, start));
+      return { start: s, count: c };
+    },
+    [candles.length],
+  );
+
+  const visibleCandles = candles.slice(viewStart, viewStart + viewCount);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawCandles(canvas, candles, resolution);
-  }, [candles, resolution]);
+    drawCandles(canvas, visibleCandles, resolution);
+  }, [visibleCandles, resolution]);
+
+  // Wheel → zoom
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      if (candles.length === 0) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseRatio = (e.clientX - rect.left) / rect.width;
+
+      const zoomFactor = e.deltaY > 0 ? 1.15 : 0.87;
+      const newCount = Math.round(viewCount * zoomFactor);
+      const delta = newCount - viewCount;
+      const newStart = viewStart - Math.round(delta * mouseRatio);
+
+      const clamped = clampView(newStart, newCount);
+      setViewStart(clamped.start);
+      setViewCount(clamped.count);
+    },
+    [candles.length, viewStart, viewCount, clampView],
+  );
+
+  // Drag to pan
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      dragRef.current = { startX: e.clientX, startViewStart: viewStart };
+    },
+    [viewStart],
+  );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!onHover || candles.length === 0) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
 
+      // Dragging → pan
+      if (dragRef.current) {
+        const rect = canvas.getBoundingClientRect();
+        const dx = e.clientX - dragRef.current.startX;
+        const candlesPerPixel = viewCount / rect.width;
+        const shift = Math.round(-dx * candlesPerPixel);
+        const newStart = dragRef.current.startViewStart + shift;
+        const clamped = clampView(newStart, viewCount);
+        setViewStart(clamped.start);
+        return;
+      }
+
+      // Hover
+      if (!onHover || visibleCandles.length === 0) return;
       const rect = canvas.getBoundingClientRect();
       const scaleX = CHART_W / rect.width;
       const mx = (e.clientX - rect.left) * scaleX;
-
       const drawW = CHART_W - PADDING.left - PADDING.right;
-      const candleW = drawW / candles.length;
+      const candleW = drawW / visibleCandles.length;
       const idx = Math.floor((mx - PADDING.left) / candleW);
-
-      if (idx >= 0 && idx < candles.length) {
-        onHover(candles[idx]!, idx);
+      if (idx >= 0 && idx < visibleCandles.length) {
+        onHover(visibleCandles[idx]!, viewStart + idx);
       }
     },
-    [candles, onHover],
+    [visibleCandles, viewStart, viewCount, onHover, clampView],
+  );
+
+  const handleMouseUp = useCallback(() => {
+    dragRef.current = null;
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    dragRef.current = null;
+    onHover?.(null, -1);
+  }, [onHover]);
+
+  // Touch: pinch-zoom + drag
+  const touchRef = useRef<{ touches: { id: number; x: number }[]; startViewStart: number; startViewCount: number }>({
+    touches: [],
+    startViewStart: viewStart,
+    startViewCount: viewCount,
+  });
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent<HTMLCanvasElement>) => {
+      const touches = Array.from(e.touches).map((t) => ({ id: t.identifier, x: t.clientX }));
+      touchRef.current = { touches, startViewStart: viewStart, startViewCount: viewCount };
+    },
+    [viewStart, viewCount],
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas || candles.length === 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const cur = Array.from(e.touches);
+      const { touches: prev, startViewStart: svs, startViewCount: svc } = touchRef.current;
+
+      if (cur.length === 1 && prev.length === 1) {
+        // Single finger → pan
+        const dx = cur[0]!.clientX - prev[0]!.x;
+        const candlesPerPixel = svc / rect.width;
+        const shift = Math.round(-dx * candlesPerPixel);
+        const clamped = clampView(svs + shift, svc);
+        setViewStart(clamped.start);
+      } else if (cur.length >= 2 && prev.length >= 2) {
+        // Pinch → zoom
+        const prevDist = Math.abs(prev[0]!.x - prev[1]!.x) || 1;
+        const curDist = Math.abs(cur[0]!.clientX - cur[1]!.clientX) || 1;
+        const scale = prevDist / curDist;
+        const newCount = Math.round(svc * scale);
+        const midX = (cur[0]!.clientX + cur[1]!.clientX) / 2;
+        const mouseRatio = (midX - rect.left) / rect.width;
+        const delta = newCount - svc;
+        const newStart = svs - Math.round(delta * mouseRatio);
+        const clamped = clampView(newStart, newCount);
+        setViewStart(clamped.start);
+        setViewCount(clamped.count);
+      }
+    },
+    [candles.length, clampView],
   );
 
   return (
@@ -48,9 +170,15 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
       ref={canvasRef}
       width={CHART_W}
       height={CHART_H}
-      className="bg-surface border border-border rounded-md block w-full"
+      className="bg-surface rounded-md block w-full cursor-grab active:cursor-grabbing touch-none"
       style={{ maxWidth: CHART_W + 'px' }}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
     />
   );
 }
@@ -60,7 +188,7 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
   ctx.clearRect(0, 0, CHART_W, CHART_H);
 
   if (candles.length === 0) {
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = '#8a7f72';
     ctx.font = '16px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('No chart data', CHART_W / 2, CHART_H / 2);
@@ -90,7 +218,7 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
   const colorDownAlpha = style.getPropertyValue('--color-negative-alpha').trim() || 'rgba(239,83,80,0.3)';
 
   // Grid lines
-  ctx.strokeStyle = '#2a2a2a';
+  ctx.strokeStyle = '#2a2519';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = PADDING.top + (priceH * i) / 4;
@@ -100,7 +228,7 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
     ctx.stroke();
 
     const price = allHigh - (priceRange * i) / 4;
-    ctx.fillStyle = '#666';
+    ctx.fillStyle = '#6b6054';
     ctx.font = '11px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(formatPrice(price), CHART_W - 5, y + 4);

@@ -9,9 +9,9 @@ import {
   type EvenAppBridge,
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk';
-import { TEXT_FULL, CHART_TEXT, IMAGE_TILES } from './layout';
+import { SPLASH_IMG, TEXT_FULL, CHART_TEXT, IMAGE_TILES } from './layout';
 
-export type PageLayout = 'text' | 'chart';
+export type PageLayout = 'splash' | 'text' | 'chart';
 
 export class EvenHubBridge {
   private bridge: EvenAppBridge | null = null;
@@ -22,6 +22,37 @@ export class EvenHubBridge {
   async init(): Promise<void> { this.bridge = await waitForEvenAppBridge(); }
   get pageReady(): boolean { return this._pageReady; }
   get currentLayout(): PageLayout | null { return this._currentLayout; }
+
+  /** Splash: 1 centered image. */
+  async setupSplashPage(): Promise<boolean> {
+    if (!this.bridge) return false;
+    try {
+      const result = await this.bridge.createStartUpPageContainer(
+        new CreateStartUpPageContainer({
+          containerTotalNum: 1,
+          imageObject: [
+            new ImageContainerProperty({
+              containerID: SPLASH_IMG.id, containerName: SPLASH_IMG.name,
+              xPosition: SPLASH_IMG.x, yPosition: SPLASH_IMG.y,
+              width: SPLASH_IMG.w, height: SPLASH_IMG.h,
+            }),
+          ],
+        }),
+      );
+      this._pageReady = result === 0;
+      this._currentLayout = 'splash';
+      return this._pageReady;
+    } catch { return false; }
+  }
+
+  async sendSplashImage(pngBytes: Uint8Array): Promise<void> {
+    if (!this.bridge || !this._pageReady) return;
+    await this.bridge.updateImageRawData(
+      new ImageRawDataUpdate({
+        containerID: SPLASH_IMG.id, containerName: SPLASH_IMG.name, imageData: pngBytes,
+      }),
+    );
+  }
 
   /** Text layout: 1 container, full screen, event capture. */
   async setupTextPage(): Promise<boolean> {

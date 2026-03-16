@@ -1,6 +1,6 @@
 import type { StockQuote, Candle } from '../state/types';
 
-// Use Vite proxy to bypass CORS in dev; falls back to direct URL in production
+// Proxy path — works in dev, preview, and .ehpk production (proxy handled by Vite or ER WebView)
 const BASE_URL = '/yf-api';
 
 // Forex pairs that need =X suffix on Yahoo Finance

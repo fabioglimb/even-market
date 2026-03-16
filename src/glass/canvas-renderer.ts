@@ -1,9 +1,13 @@
 /**
  * Canvas renderer: chart-only for image tiles. 400x100.
  */
-import { CHART_CANVAS_W, CHART_CANVAS_H } from './layout';
+import { CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from './layout';
 import type { DisplayData } from '../state/selectors';
 import type { Candle } from '../state/types';
+
+function getViewportSize(resolution?: string): number {
+  return VIEWPORT_PER_RESOLUTION[resolution ?? 'D'] ?? 40;
+}
 
 const W = CHART_CANVAS_W;
 const H = CHART_CANVAS_H;
@@ -24,6 +28,11 @@ function ensureCanvas(): CanvasRenderingContext2D {
 }
 
 export function getCanvas(): HTMLCanvasElement { ensureCanvas(); return canvas!; }
+
+// Sticky viewport for candle navigation
+let viewportStart = -1;
+export function resetViewport(): void { viewportStart = -1; }
+export function getViewportStart(): number { return viewportStart; }
 
 function drawSparkline(c: CanvasRenderingContext2D, closes: number[], hlIdx?: number, flash?: boolean): void {
   if (closes.length < 2) return;
@@ -53,16 +62,28 @@ function drawSparkline(c: CanvasRenderingContext2D, closes: number[], hlIdx?: nu
   }
 }
 
-function drawCandles(c: CanvasRenderingContext2D, candles: Candle[], hlIdx?: number, flash?: boolean): void {
+function drawCandles(c: CanvasRenderingContext2D, candles: Candle[], hlIdx?: number, flash?: boolean, resolution?: string): void {
   if (candles.length === 0) return;
-  const VP = 40;
+  const VP = getViewportSize(resolution);
   let view = candles, offset = 0;
   if (candles.length > VP) {
     if (hlIdx != null && hlIdx >= 0) {
-      let s = hlIdx - Math.floor(VP / 2);
-      s = Math.max(0, Math.min(candles.length - VP, s));
-      view = candles.slice(s, s + VP); offset = s;
-    } else { view = candles.slice(-VP); offset = candles.length - VP; }
+      // Initialize viewport at the end (most recent candles)
+      if (viewportStart < 0) viewportStart = candles.length - VP;
+      // Only shift if highlight goes outside the viewport
+      if (hlIdx < viewportStart) viewportStart = hlIdx;
+      else if (hlIdx >= viewportStart + VP) viewportStart = hlIdx - VP + 1;
+      // Clamp
+      viewportStart = Math.max(0, Math.min(candles.length - VP, viewportStart));
+      view = candles.slice(viewportStart, viewportStart + VP);
+      offset = viewportStart;
+    } else {
+      viewportStart = candles.length - VP;
+      view = candles.slice(-VP);
+      offset = candles.length - VP;
+    }
+  } else {
+    viewportStart = 0;
   }
 
   const cw = W - PAD * 2, ch = H - PAD * 2;
@@ -102,7 +123,7 @@ export function renderToCanvasDirect(data: DisplayData): HTMLCanvasElement {
 
   if (data.chartData) {
     if (data.chartType === 'candles' && data.chartData.candles.length > 0)
-      drawCandles(c, data.chartData.candles, data.highlightedCandleIndex, data.candleFlashPhase);
+      drawCandles(c, data.chartData.candles, data.highlightedCandleIndex, data.candleFlashPhase, data.resolution);
     else if (data.chartData.closes.length > 0)
       drawSparkline(c, data.chartData.closes, data.highlightedCandleIndex, data.candleFlashPhase);
   }

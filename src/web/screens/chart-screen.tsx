@@ -1,22 +1,23 @@
 import { useState, useCallback } from 'react';
 import type { Candle, ChartResolution } from '../../state/types';
-import { formatPrice } from '../../utils/format';
+import { formatPrice, formatPercent } from '../../utils/format';
 import { useSelector, useDispatch } from '../hooks/use-store';
-import { cn } from '../utils/cn';
 import { Page } from '../components/shared/page';
 import { Button } from '../components/ui/button';
-import { Select } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
+import { Card } from '../components/ui/card';
+import { SegmentedControl } from '../components/ui/segmented-control';
 import { CandlestickChart } from '../components/shared/candlestick-chart';
 import { ChartInfo } from '../components/shared/chart-info';
 
 const RES_OPTIONS = [
-  { value: '1', label: '1 min' },
-  { value: '5', label: '5 min' },
-  { value: '15', label: '15 min' },
-  { value: '60', label: '1 hour' },
-  { value: 'D', label: 'Daily' },
-  { value: 'W', label: 'Weekly' },
-  { value: 'M', label: 'Monthly' },
+  { value: '1', label: '1m' },
+  { value: '5', label: '5m' },
+  { value: '15', label: '15m' },
+  { value: '60', label: '1H' },
+  { value: 'D', label: 'D' },
+  { value: 'W', label: 'W' },
+  { value: 'M', label: 'M' },
 ];
 
 function ChartScreen() {
@@ -49,48 +50,49 @@ function ChartScreen() {
     <Page>
       {/* Header */}
       <div className="mb-4">
-        <div className="flex items-center gap-3 mb-2.5">
-          <Button variant="outline" onClick={() => dispatch({ type: 'GO_BACK' })}>
+        <div className="flex items-center gap-3 mb-3">
+          <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'GO_BACK' })}>
             &larr; Back
           </Button>
-          <h2 className="text-2xl font-semibold">{sym}</h2>
-          <span className="text-lg text-text-dim">
-            {quote ? (
-              <>
-                ${formatPrice(quote.price)}{' '}
-                <span className={cn(isUp ? 'text-positive' : 'text-negative')}>
-                  {isUp ? '+' : ''}
-                  {quote.changePercent.toFixed(2)}%
-                </span>
-              </>
-            ) : (
-              'Loading...'
-            )}
-          </span>
+          <h2 className="text-lg font-bold tracking-tight">{sym}</h2>
         </div>
 
-        <div>
-          <Select
-            options={RES_OPTIONS}
-            value={graphic.resolution}
-            onValueChange={(res) =>
-              dispatch({
-                type: 'SET_RESOLUTION',
-                graphicId: graphic.id,
-                resolution: res as ChartResolution,
-              })
-            }
-            className="bg-surface border border-border text-text rounded-md px-3 py-1 text-sm outline-none w-auto"
-          />
+        <div className="flex items-baseline gap-3 mb-4">
+          {quote ? (
+            <>
+              <span className="text-3xl font-mono font-bold tabular-nums">
+                ${formatPrice(quote.price)}
+              </span>
+              <Badge variant={isUp ? 'positive' : 'negative'}>
+                {formatPercent(quote.changePercent)}
+              </Badge>
+            </>
+          ) : (
+            <span className="text-text-dim">Loading...</span>
+          )}
         </div>
+
+        <SegmentedControl
+          options={RES_OPTIONS}
+          value={graphic.resolution}
+          onValueChange={(res) =>
+            dispatch({
+              type: 'SET_RESOLUTION',
+              graphicId: graphic.id,
+              resolution: res as ChartResolution,
+            })
+          }
+        />
       </div>
 
       {/* Chart */}
-      <CandlestickChart
-        candles={candles}
-        resolution={graphic.resolution}
-        onHover={handleHover}
-      />
+      <Card padding="none" className="overflow-hidden">
+        <CandlestickChart
+          candles={candles}
+          resolution={graphic.resolution}
+          onHover={handleHover}
+        />
+      </Card>
       <ChartInfo candle={hoveredCandle} resolution={graphic.resolution} />
     </Page>
   );

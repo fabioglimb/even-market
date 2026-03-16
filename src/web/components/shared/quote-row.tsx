@@ -1,7 +1,7 @@
 import type { GraphicEntry, StockQuote } from '../../../state/types';
 import { formatPrice, formatPercent, formatChange, formatVolume, formatResolutionShort } from '../../../utils/format';
-import { cn } from '../../utils/cn';
 import { Button } from '../ui/button';
+import { TrashIcon } from '../ui/icons';
 import { TableRow, TableCell } from '../ui/table';
 
 interface QuoteRowProps {
@@ -17,15 +17,7 @@ function QuoteRow({ graphic, quote, onClick, onRemove }: QuoteRowProps) {
 
   return (
     <TableRow onClick={onClick}>
-      <TableCell className="font-semibold text-accent">{graphic.symbol}</TableCell>
-      <TableCell>{formatResolutionShort(graphic.resolution)}</TableCell>
-      <TableCell>{quote ? formatPrice(quote.price) : '--'}</TableCell>
-      <TableCell className={colorClass}>{quote ? formatChange(quote.change) : '--'}</TableCell>
-      <TableCell className={colorClass}>{quote ? formatPercent(quote.changePercent) : '--'}</TableCell>
-      <TableCell>{quote ? formatPrice(quote.high) : '--'}</TableCell>
-      <TableCell>{quote ? formatPrice(quote.low) : '--'}</TableCell>
-      <TableCell>{quote ? formatVolume(quote.volume) : '--'}</TableCell>
-      <TableCell>
+      <TableCell className="w-8">
         <Button
           variant="danger"
           size="icon"
@@ -34,9 +26,17 @@ function QuoteRow({ graphic, quote, onClick, onRemove }: QuoteRowProps) {
             onRemove();
           }}
         >
-          x
+          <TrashIcon />
         </Button>
       </TableCell>
+      <TableCell className="font-semibold text-accent font-sans">{graphic.symbol}</TableCell>
+      <TableCell className="text-text-dim">{formatResolutionShort(graphic.resolution)}</TableCell>
+      <TableCell className="text-right">{quote ? formatPrice(quote.price) : '--'}</TableCell>
+      <TableCell className={`text-right ${colorClass}`}>{quote ? formatChange(quote.change) : '--'}</TableCell>
+      <TableCell className={`text-right ${colorClass}`}>{quote ? formatPercent(quote.changePercent) : '--'}</TableCell>
+      <TableCell className="text-right">{quote ? formatPrice(quote.high) : '--'}</TableCell>
+      <TableCell className="text-right">{quote ? formatPrice(quote.low) : '--'}</TableCell>
+      <TableCell className="text-right">{quote ? formatVolume(quote.volume) : '--'}</TableCell>
     </TableRow>
   );
 }

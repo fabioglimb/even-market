@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { cn } from '../../utils/cn';
+import { Card } from '../ui/card';
 
 interface SettingsGroupProps {
   label: string;
@@ -7,14 +7,14 @@ interface SettingsGroupProps {
   className?: string;
 }
 
-function SettingsGroup({ label, children, className }: SettingsGroupProps) {
+function SettingsGroup({ label, children }: SettingsGroupProps) {
   return (
-    <div className={cn('mb-5', className)}>
-      <label className="block text-[13px] text-text-dim mb-1.5 uppercase tracking-wider">
+    <Card className="mb-4">
+      <label className="block text-xs font-medium text-text-dim mb-2 uppercase tracking-wider">
         {label}
       </label>
       {children}
-    </div>
+    </Card>
   );
 }
 

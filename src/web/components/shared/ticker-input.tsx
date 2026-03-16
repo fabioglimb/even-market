@@ -4,7 +4,6 @@ import { Input } from '../ui/input';
 import { Select } from '../ui/select';
 import { Button } from '../ui/button';
 
-const RESOLUTIONS: ChartResolution[] = ['1', '5', '15', '60', 'D', 'W', 'M'];
 const RES_OPTIONS = [
   { value: '1', label: '1 min' },
   { value: '5', label: '5 min' },
@@ -32,21 +31,26 @@ function TickerInput({ onAdd }: TickerInputProps) {
   }
 
   return (
-    <div className="flex gap-2 ml-auto">
+    <div className="flex items-center gap-2 flex-wrap">
       <Input
         placeholder="Symbol (e.g. AMZN)"
         maxLength={10}
         value={symbol}
+        className="w-40"
         onChange={(e) => setSymbol(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
       />
-      <Select
-        options={RES_OPTIONS}
-        value={resolution}
-        onValueChange={(v) => setResolution(v as ChartResolution)}
-        className="bg-surface border border-border text-text rounded-md px-3 py-1.5 text-sm outline-none w-auto"
-      />
-      <Button onClick={handleAdd}>Add</Button>
+      <div className="flex items-center">
+        <Select
+          options={RES_OPTIONS}
+          value={resolution}
+          onValueChange={(v) => setResolution(v as ChartResolution)}
+          className="w-24 rounded-r-none border-r-0"
+        />
+        <Button onClick={handleAdd} className="rounded-l-none">
+          Add
+        </Button>
+      </div>
     </div>
   );
 }

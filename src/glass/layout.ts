@@ -12,6 +12,29 @@ export const DISPLAY_H = 288;
 export const G2_IMAGE_MAX_W = 200;
 export const G2_IMAGE_MAX_H = 100;
 
+// ── Splash layout (1 centered image) ──
+
+export const SPLASH_IMG = {
+  id: 1,
+  name: 'splash',
+  x: Math.floor((DISPLAY_W - G2_IMAGE_MAX_W) / 2),
+  y: Math.floor((DISPLAY_H - G2_IMAGE_MAX_H) / 2),
+  w: G2_IMAGE_MAX_W,
+  h: G2_IMAGE_MAX_H,
+};
+
+// ── Viewport size per timeframe (ideal candle count for 576px chart) ──
+
+export const VIEWPORT_PER_RESOLUTION: Record<string, number> = {
+  '1': 60,   // 1 hour
+  '5': 48,   // 4 hours
+  '15': 40,  // 10 hours
+  '60': 36,  // 1.5 days
+  'D': 40,   // 2 months
+  'W': 30,   // 7 months
+  'M': 24,   // 2 years
+};
+
 // ── Text-only layout ──
 
 export const TEXT_FULL = {

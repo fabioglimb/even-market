@@ -1,22 +1,6 @@
-/** PNG encoding: 4-bit greyscale indexed PNG via UPNG + hash for diff detection. */
+/** PNG encoding: 1-bit (2-color) indexed PNG via UPNG — smallest possible files. */
 import UPNG from 'upng-js';
 
-function rgbaToGreyscale4BitRGBA(data: Uint8ClampedArray, pixelCount: number): Uint8Array {
-  const out = new Uint8Array(pixelCount * 4);
-  for (let i = 0; i < pixelCount; i++) {
-    const si = i * 4;
-    const lum = Math.round(0.299 * data[si]! + 0.587 * data[si + 1]! + 0.114 * data[si + 2]!);
-    const idx = Math.min(15, Math.round(lum / 17));
-    const v = idx * 17;
-    out[si] = v;
-    out[si + 1] = v;
-    out[si + 2] = v;
-    out[si + 3] = 255;
-  }
-  return out;
-}
-
-/** FNV-1a 32-bit hash for fast diff comparison. */
 function fnv32a(bytes: Uint8Array): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < bytes.length; i++) {
@@ -31,32 +15,75 @@ export interface EncodedTile {
   hash: number;
 }
 
-/**
- * Crop, greyscale-quantize, encode as indexed PNG.
- * Returns Uint8Array (not number[]) + hash for diff detection.
- */
-export function cropScaleToIndexedPng(
+// Cache tile canvases
+const tileCanvasCache = new Map<string, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }>();
+
+function getTileCtx(key: string, w: number, h: number): CanvasRenderingContext2D {
+  let cached = tileCanvasCache.get(key);
+  if (!cached || cached.canvas.width !== w || cached.canvas.height !== h) {
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    cached = { canvas, ctx: canvas.getContext('2d')! };
+    tileCanvasCache.set(key, cached);
+  }
+  return cached.ctx;
+}
+
+// Reusable RGBA buffer for UPNG encode
+let rgbaBuf: Uint8Array | null = null;
+let rgbaBufSize = 0;
+
+function getRgbaBuf(size: number): Uint8Array {
+  if (!rgbaBuf || rgbaBufSize < size) {
+    rgbaBuf = new Uint8Array(size);
+    rgbaBufSize = size;
+  }
+  return rgbaBuf;
+}
+
+
+function encodeTile(
   canvas: HTMLCanvasElement,
   sx: number, sy: number, sw: number, sh: number,
   tw: number, th: number,
+  key: string,
 ): EncodedTile {
-  const tile = document.createElement('canvas');
-  tile.width = tw;
-  tile.height = th;
-  const ctx = tile.getContext('2d')!;
-  ctx.imageSmoothingEnabled = true;
-  // Fill black first (handles case where crop is smaller than tile)
+  const ctx = getTileCtx(key, tw, th);
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, tw, th);
-  // Draw crop at 1:1 — if sw < tw, right side stays black
-  const drawW = Math.min(sw, tw);
-  const drawH = Math.min(sh, th);
-  ctx.drawImage(canvas, sx, sy, drawW, drawH, 0, 0, drawW, drawH);
+  const dw = Math.min(sw, tw), dh = Math.min(sh, th);
+  ctx.drawImage(canvas, sx, sy, dw, dh, 0, 0, dw, dh);
 
   const imgData = ctx.getImageData(0, 0, tw, th);
-  const greyRGBA = rgbaToGreyscale4BitRGBA(imgData.data, tw * th);
-  const pngBuf = UPNG.encode([greyRGBA.buffer as ArrayBuffer], tw, th, 16);
-  const bytes = new Uint8Array(pngBuf);
+  const pixels = imgData.data;
+  const pc = tw * th;
 
+  // Quantize to 16-level greyscale for 4-bit indexed PNG
+  const buf = getRgbaBuf(pc * 4);
+  for (let i = 0; i < pc; i++) {
+    const si = i * 4;
+    const lum = Math.round(0.299 * pixels[si]! + 0.587 * pixels[si + 1]! + 0.114 * pixels[si + 2]!);
+    const idx = Math.min(15, Math.round(lum / 17));
+    const v = idx * 17;
+    buf[si] = v; buf[si + 1] = v; buf[si + 2] = v; buf[si + 3] = 255;
+  }
+
+  // 16-color indexed PNG
+  const pngBuf = UPNG.encode([buf.buffer.slice(0, pc * 4) as ArrayBuffer], tw, th, 16);
+  const bytes = new Uint8Array(pngBuf);
   return { bytes, hash: fnv32a(bytes) };
 }
+
+/** Encode all tiles. */
+export function encodeTilesBatch(
+  canvas: HTMLCanvasElement,
+  tiles: Array<{ crop: { sx: number; sy: number; sw: number; sh: number }; name: string }>,
+  tw: number, th: number,
+): EncodedTile[] {
+  return tiles.map((tile) =>
+    encodeTile(canvas, tile.crop.sx, tile.crop.sy, tile.crop.sw, tile.crop.sh, tw, th, tile.name)
+  );
+}
+
+/** Reset cache (no-op now, kept for API compat). */
+export function resetTileCache(): void {}

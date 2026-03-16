@@ -16,22 +16,24 @@ function NavBar({ activeScreen, onNavigate }: NavBarProps) {
     activeScreen === 'stock-detail' ? 'watchlist' : activeScreen;
 
   return (
-    <nav className="flex gap-2 mb-4 border-b border-border pb-2">
-      {NAV_ITEMS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => onNavigate(item.id)}
-          className={cn(
-            'border rounded-md px-5 py-2 text-sm cursor-pointer transition-all',
-            activeId === item.id
-              ? 'bg-accent text-white border-accent'
-              : 'bg-transparent border-border text-text-dim hover:text-text hover:border-text-dim',
-          )}
-        >
-          {item.label}
-        </button>
-      ))}
+    <nav className="sticky top-0 z-10 bg-bg/80 backdrop-blur-sm border-b border-border mb-6 overflow-x-auto scrollbar-hide">
+      <div className="flex gap-6">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onNavigate(item.id)}
+            className={cn(
+              'py-3 text-sm font-medium cursor-pointer transition-colors whitespace-nowrap border-b-2',
+              activeId === item.id
+                ? 'text-accent border-accent'
+                : 'text-text-dim hover:text-text border-transparent',
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
     </nav>
   );
 }

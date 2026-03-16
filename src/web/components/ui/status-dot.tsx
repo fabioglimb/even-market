@@ -10,7 +10,7 @@ function StatusDot({ connected, className }: StatusDotProps) {
     <span
       className={cn(
         'inline-block w-2 h-2 rounded-full',
-        connected ? 'bg-positive' : 'bg-negative',
+        connected ? 'bg-positive animate-pulse-dot' : 'bg-negative',
         className,
       )}
     />

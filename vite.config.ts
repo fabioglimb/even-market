@@ -10,10 +10,7 @@ import type { Plugin } from 'vite';
 const appRoot = dirname(fileURLToPath(import.meta.url));
 
 function yahooFinanceProxy(): Plugin {
-  return {
-    name: 'even-market-yahoo-proxy',
-    configureServer(server) {
-      server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
+  const middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => {
         const url = req.url ?? '';
         if (!url.startsWith('/yf-api/')) {
           next();
@@ -47,7 +44,15 @@ function yahooFinanceProxy(): Plugin {
         });
 
         proxyReq.end();
-      });
+  };
+
+  return {
+    name: 'even-market-yahoo-proxy',
+    configureServer(server) {
+      server.middlewares.use(middleware);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(middleware);
     },
   };
 }

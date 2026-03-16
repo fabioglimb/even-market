@@ -7,7 +7,7 @@ interface PageProps {
 }
 
 function Page({ children, className }: PageProps) {
-  return <div className={cn('min-h-[400px]', className)}>{children}</div>;
+  return <div className={cn('min-h-[400px] pb-8', className)}>{children}</div>;
 }
 
 export { Page };

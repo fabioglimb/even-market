@@ -11,7 +11,7 @@ function Pill({ label, onRemove, className }: PillProps) {
   return (
     <span
       className={cn(
-        'bg-surface border border-border px-2.5 py-1 rounded-full text-[13px] inline-flex items-center gap-1.5',
+        'bg-surface-light border border-border px-2.5 py-1 rounded-md text-[13px] font-mono inline-flex items-center gap-1.5',
         className,
       )}
     >
