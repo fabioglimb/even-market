@@ -4,66 +4,107 @@ import {
   ImageContainerProperty,
   TextContainerProperty,
 } from '@evenrealities/even_hub_sdk';
-import { MAIN_SLOT, dummySlot } from './layout';
+import { DISPLAY_W, DISPLAY_H } from './layout';
 
-function imageContainer(): ImageContainerProperty {
-  return new ImageContainerProperty({
-    containerID: MAIN_SLOT.id,
-    containerName: MAIN_SLOT.name,
-    xPosition: MAIN_SLOT.x,
-    yPosition: MAIN_SLOT.y,
-    width: MAIN_SLOT.w,
-    height: MAIN_SLOT.h,
-  });
+// Match the Pong game pattern exactly:
+// 1. createStartUpPageContainer with text-only (loading screen)
+// 2. rebuildPageContainer with image containers once ready
+
+export interface TileSlot {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
-function eventCaptureContainer(): TextContainerProperty {
-  return new TextContainerProperty({
-    containerID: 2,
-    containerName: 'events',
-    xPosition: MAIN_SLOT.x,
-    yPosition: MAIN_SLOT.y,
-    width: MAIN_SLOT.w,
-    height: MAIN_SLOT.h,
-    borderWidth: 0,
-    borderColor: 0,
-    borderRdaius: 0,
-    paddingLength: 0,
-    content: '',
-    isEventCapture: 1,
-  });
-}
+// Single image container matching the Pong game's approach (200x100 works)
+// We use 576x286 like the original — but if this fails, we have the text fallback
+export const TILE: TileSlot = {
+  id: 2,
+  name: 'img',
+  x: 0,
+  y: 0,
+  w: DISPLAY_W,
+  h: DISPLAY_H - 2,
+};
 
-function dummy(): TextContainerProperty {
-  const s = dummySlot(2);
-  return new TextContainerProperty({
-    containerID: s.id,
-    containerName: s.name,
-    xPosition: s.x,
-    yPosition: s.y,
-    width: s.w,
-    height: s.h,
-    borderWidth: 0,
-    borderColor: 0,
-    borderRdaius: 0,
-    paddingLength: 0,
-    content: '',
-    isEventCapture: 0,
-  });
-}
-
-export function composeStartupPage(): CreateStartUpPageContainer {
+export function composeLoadingPage(): CreateStartUpPageContainer {
   return new CreateStartUpPageContainer({
-    containerTotalNum: 3,
-    imageObject: [imageContainer()],
-    textObject: [eventCaptureContainer(), dummy()],
+    containerTotalNum: 1,
+    textObject: [
+      new TextContainerProperty({
+        containerID: 1,
+        containerName: 'loading',
+        content: 'EvenMarket\nLoading...',
+        xPosition: 0,
+        yPosition: 0,
+        width: DISPLAY_W,
+        height: DISPLAY_H,
+        isEventCapture: 0,
+        paddingLength: 8,
+      }),
+    ],
   });
 }
 
-export function composeRebuildPage(): RebuildPageContainer {
+export function composeImagePage(): RebuildPageContainer {
   return new RebuildPageContainer({
     containerTotalNum: 3,
-    imageObject: [imageContainer()],
-    textObject: [eventCaptureContainer(), dummy()],
+    textObject: [
+      new TextContainerProperty({
+        containerID: 1,
+        containerName: 'evt',
+        content: ' ',
+        xPosition: 0,
+        yPosition: 0,
+        width: DISPLAY_W,
+        height: DISPLAY_H,
+        isEventCapture: 1,
+        paddingLength: 0,
+      }),
+    ],
+    imageObject: [
+      new ImageContainerProperty({
+        containerID: TILE.id,
+        containerName: TILE.name,
+        xPosition: TILE.x,
+        yPosition: TILE.y,
+        width: TILE.w,
+        height: TILE.h,
+      }),
+    ],
+  });
+}
+
+// Text-only fallback page (if image page fails)
+export function composeTextPage(): RebuildPageContainer {
+  return new RebuildPageContainer({
+    containerTotalNum: 2,
+    textObject: [
+      new TextContainerProperty({
+        containerID: 1,
+        containerName: 'evt',
+        content: ' ',
+        xPosition: 0,
+        yPosition: 0,
+        width: DISPLAY_W,
+        height: DISPLAY_H,
+        isEventCapture: 1,
+        paddingLength: 0,
+      }),
+      new TextContainerProperty({
+        containerID: 2,
+        containerName: 'display',
+        content: '',
+        xPosition: 0,
+        yPosition: 0,
+        width: DISPLAY_W,
+        height: DISPLAY_H,
+        isEventCapture: 0,
+        paddingLength: 8,
+      }),
+    ],
   });
 }

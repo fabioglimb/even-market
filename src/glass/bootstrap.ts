@@ -1,56 +1,247 @@
-import { EvenHubBridge } from './bridge';
+import { EvenHubBridge, type PageLayout } from './bridge';
 import { createStore } from '../state/store';
 import type { AppState, GraphicEntry, ChartResolution } from '../state/types';
 import { makeGraphicId } from '../state/types';
 import { getDisplayData } from '../state/selectors';
 import { mapEvenHubEvent } from '../input/action-map';
-import { composeStartupPage } from './composer';
-import { renderToImage, renderToCanvasDirect, getCanvas } from './canvas-renderer';
-import { MAIN_SLOT } from './layout';
+import { renderToCanvasDirect, getCanvas } from './canvas-renderer';
+import { cropScaleToIndexedPng } from './png-utils';
+import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H } from './layout';
+import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
 import { activateKeepAlive } from '../utils/keep-alive';
 import { Poller } from '../data/poller';
 
 let hub: EvenHubBridge | null = null;
 let store: ReturnType<typeof createStore>;
 let poller: Poller;
-let pageCreated = false;
-let rendering = false;
-let dirty = false;
 let flashTimer: ReturnType<typeof setInterval> | null = null;
 
-async function flushDisplay(state: AppState): Promise<void> {
-  if (rendering) {
-    dirty = true;
-    return;
+// ── Layout management ──
+
+function getDesiredLayout(state: AppState): PageLayout {
+  return state.screen === 'stock-detail' ? 'chart' : 'text';
+}
+
+async function ensureLayout(state: AppState): Promise<void> {
+  if (!hub || !hub.pageReady) return;
+  const desired = getDesiredLayout(state);
+  if (hub.currentLayout === desired) return;
+
+  if (desired === 'chart') {
+    await hub.switchToChartLayout(buildChartTopText(state));
+  } else {
+    await hub.switchToTextLayout(buildFullText(state));
   }
-  rendering = true;
-  dirty = false;
+}
+
+// ── Text updates (instant) ──
+
+let textInFlight = false;
+let textPending = false;
+
+async function flushText(state: AppState): Promise<void> {
+  if (!hub || !hub.pageReady) return;
+
+  // If a text send is in flight, mark pending and return — we'll catch up after
+  if (textInFlight) { textPending = true; return; }
+  textInFlight = true;
+  try {
+    await ensureLayout(state);
+    const text = hub.currentLayout === 'chart'
+      ? buildChartTopText(state)
+      : buildFullText(state);
+    // Fire and don't wait for BLE ack — reduces perceived lag
+    hub.updateText(text).catch(() => {}).finally(() => {
+      textInFlight = false;
+      if (textPending) {
+        textPending = false;
+        // Send latest state (not stale)
+        flushText(store.getState()).catch(() => {});
+      }
+    });
+  } catch {
+    textInFlight = false;
+  }
+}
+
+// ── Image updates (throttled, chart layout only) ──
+
+let imgBusy = false;
+let imgDirty = false;
+const IMG_INTERVAL = 150;
+
+// Track tile hashes to skip unchanged tiles
+const tileHashes = new Map<number, number>();
+// Round-robin: send 1 tile per cycle
+let nextTileIdx = 0;
+
+async function flushImages(state: AppState): Promise<void> {
+  if (!hub || !hub.pageReady || hub.currentLayout !== 'chart') return;
+  if (imgBusy) { imgDirty = true; return; }
+
+  imgBusy = true;
+  imgDirty = false;
   try {
     const data = getDisplayData(state);
-    renderToCanvasDirect(data);
+    const canvas = renderToCanvasDirect(data);
 
-    if (hub) {
-      const pngBytes = await renderToImage(data);
-      if (pngBytes.length > 0) {
-        if (!pageCreated) {
-          const page = composeStartupPage();
-          pageCreated = await hub.setupPage(page);
-        }
-        if (pageCreated) {
-          await hub.updateImage(MAIN_SLOT.id, MAIN_SLOT.name, pngBytes);
-        }
-      }
+    // Encode all tiles, find the next one that changed
+    let sent = false;
+    for (let attempt = 0; attempt < IMAGE_TILES.length; attempt++) {
+      const idx = (nextTileIdx + attempt) % IMAGE_TILES.length;
+      const tile = IMAGE_TILES[idx]!;
+
+      const encoded = cropScaleToIndexedPng(
+        canvas,
+        tile.crop.sx, tile.crop.sy, tile.crop.sw, tile.crop.sh,
+        G2_IMAGE_MAX_W, G2_IMAGE_MAX_H,
+      );
+
+      const prevHash = tileHashes.get(tile.id);
+      if (prevHash === encoded.hash) continue;
+
+      tileHashes.set(tile.id, encoded.hash);
+      await hub.sendImage(tile.id, tile.name, encoded.bytes);
+      nextTileIdx = (idx + 1) % IMAGE_TILES.length;
+      sent = true;
+      break; // Only 1 tile per cycle
     }
-  } catch (err) {
-    void err;
-  } finally {
-    rendering = false;
-    if (dirty) {
-      dirty = false;
-      flushDisplay(store.getState()).catch(() => {});
+
+    // If all tiles unchanged, advance anyway
+    if (!sent) nextTileIdx = (nextTileIdx + 1) % IMAGE_TILES.length;
+  } catch { /* skip */ }
+  finally {
+    imgBusy = false;
+    if (imgDirty) {
+      setTimeout(() => {
+        imgDirty = false;
+        flushImages(store.getState()).catch(() => {});
+      }, IMG_INTERVAL);
     }
   }
 }
+
+// ── Combined flush ──
+
+function flushDisplay(state: AppState, prev?: AppState): void {
+  flushText(state).catch(() => {});
+  if (getDesiredLayout(state) === 'chart') {
+    // Always try flushing images on chart screen — hash check skips unchanged tiles
+    flushImages(state).catch(() => {});
+  }
+}
+
+function needsImageUpdate(state: AppState, prev: AppState): boolean {
+  if (state.screen !== prev.screen) return true;
+  if (state.quotes !== prev.quotes) return true;
+  if (state.candles !== prev.candles) return true;
+  if (state.selectedGraphicId !== prev.selectedGraphicId) return true;
+  if (state.settings !== prev.settings) return true;
+  return false;
+}
+
+// ── Text builders ──
+
+function padR(s: string, n: number): string {
+  return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+}
+
+function padL(s: string, n: number): string {
+  return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
+}
+
+/** Full-screen text for watchlist/settings/splash. */
+function buildFullText(state: AppState): string {
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  switch (state.screen) {
+    case 'splash':
+      return 'EvenMarket\nLoading...';
+
+    case 'watchlist': {
+      const lines: string[] = [];
+      const hi = state.highlightedIndex;
+
+      lines.push(`MARKETS${' '.repeat(20)}${time}`);
+      lines.push('');
+
+      for (let i = 0; i < state.settings.graphics.length; i++) {
+        const g = state.settings.graphics[i]!;
+        const q = state.quotes[g.symbol];
+        const cursor = i === hi ? '\u25B6' : '  ';
+        const res = formatResolutionShort(g.resolution);
+
+        if (q) {
+          const sym = padR(`${g.symbol} ${res}`, 11);
+          const price = padL(formatPrice(q.price), 9);
+          const pct = padL(formatPercent(q.changePercent), 8);
+          lines.push(`${cursor} ${sym}${price}  ${pct}`);
+        } else {
+          lines.push(`${cursor} ${padR(`${g.symbol} ${res}`, 11)}   ---.--    --.--`);
+        }
+      }
+
+      lines.push('');
+      const settingsHi = hi === state.settings.graphics.length;
+      lines.push(`${settingsHi ? '\u25B6' : '  '} [Settings]`);
+      return lines.join('\n');
+    }
+
+    case 'settings': {
+      const s = state.settings;
+      const hi = state.highlightedIndex;
+      const lines: string[] = [];
+
+      lines.push(`SETTINGS${' '.repeat(19)}${time}`);
+      lines.push('');
+      lines.push(`${hi === 0 ? '\u25B6' : '  '} Refresh: ${s.refreshInterval}s`);
+      lines.push(`${hi === 1 ? '\u25B6' : '  '} Chart: ${s.chartType === 'sparkline' ? 'Sparkline' : 'Candles'}`);
+      lines.push('');
+      lines.push('  Tap to cycle value');
+      lines.push('  Double-tap to go back');
+      return lines.join('\n');
+    }
+
+    default:
+      return `${time}\nEvenMarket`;
+  }
+}
+
+/** Top text panel for stock detail (chart below). */
+function buildChartTopText(state: AppState): string {
+  const g = state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
+  if (!g) return 'No graphic';
+  const q = state.quotes[g.symbol];
+  if (!q) return `${g.symbol}  Loading...`;
+
+  const res = formatResolutionShort(g.resolution);
+
+  // Price line
+  let line1 = `${g.symbol} ${res}  $${formatPrice(q.price)}  ${formatPercent(q.changePercent)}`;
+
+  // OHLC — candle nav or live quote
+  let ohlc: string;
+  const ci = state.highlightedCandleIndex;
+  const inCandleNav = state.candleNavActive && ci >= 0 && ci < state.candles.length;
+  if (inCandleNav) {
+    const c = state.candles[ci]!;
+    ohlc = `O:${formatPrice(c.open)} H:${formatPrice(c.high)} C:${formatPrice(c.close)} L:${formatPrice(c.low)} V:${formatVolume(c.volume)}`;
+  } else {
+    ohlc = `O:${formatPrice(q.open)} H:${formatPrice(q.high)} C:${formatPrice(q.price)} L:${formatPrice(q.low)} V:${formatVolume(q.volume)}`;
+  }
+
+  // Mode buttons
+  const flash = state.candleFlashPhase ? '\u25CF' : '\u25CB';
+  const inBtnMode = !state.candleNavActive && !state.tfNavActive;
+  let tfBtn = state.tfNavActive ? `${flash}[${res}]` :
+    (inBtnMode && state.highlightedIndex === 0) ? `\u25B6[${res}]` : ` ${res} `;
+  let navBtn = state.candleNavActive ? `${flash}[NAV]` :
+    (inBtnMode && state.highlightedIndex === 1) ? '\u25B6[NAV]' : ' NAV ';
+
+  return `${line1}\n${ohlc}\n${tfBtn}  ${navBtn}`;
+}
+
+// ── State change detection ──
 
 function shouldUpdateDisplay(state: AppState, prev: AppState): boolean {
   if (state.screen !== prev.screen) return true;
@@ -68,12 +259,13 @@ function shouldUpdateDisplay(state: AppState, prev: AppState): boolean {
   return false;
 }
 
+// ── Side effects ──
+
 function getSelectedGraphic(state: AppState): GraphicEntry | undefined {
   return state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
 }
 
 function handleSideEffects(state: AppState, prev: AppState): void {
-  // Fetch candles when entering stock-detail or resolution changes
   if (state.screen === 'stock-detail' && state.selectedGraphicId) {
     const graphic = getSelectedGraphic(state);
     if (graphic) {
@@ -85,10 +277,7 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     }
   }
 
-  // Flash timer management
   const needsFlash = state.screen === 'stock-detail' && (state.candleNavActive || state.tfNavActive);
-  const hadFlash = prev.screen === 'stock-detail' && prev.candleNavActive;
-
   if (needsFlash && !flashTimer) {
     flashTimer = setInterval(() => {
       store.dispatch({ type: 'CANDLE_FLASH_TICK' });
@@ -98,13 +287,14 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     flashTimer = null;
   }
 
-  // Persist settings to localStorage
   if (state.settings !== prev.settings) {
     try {
       localStorage.setItem('even-market-settings', JSON.stringify(state.settings));
     } catch { /* ignore */ }
   }
 }
+
+// ── Setup ──
 
 function mountHiddenCanvas(): void {
   const container = document.getElementById('glasses-canvas');
@@ -115,8 +305,6 @@ function mountHiddenCanvas(): void {
 
 function migrateOldSettings(raw: string): Record<string, unknown> {
   const settings = JSON.parse(raw);
-
-  // Detect old watchlist format: string[] instead of GraphicEntry[]
   if (settings.watchlist && Array.isArray(settings.watchlist) && settings.watchlist.length > 0
       && typeof settings.watchlist[0] === 'string') {
     const resolution: ChartResolution = settings.chartResolution || 'D';
@@ -128,12 +316,7 @@ function migrateOldSettings(raw: string): Record<string, unknown> {
     delete settings.watchlist;
     delete settings.chartResolution;
   }
-
-  // Remove old chartResolution if present (now per-graphic)
-  if ('chartResolution' in settings) {
-    delete settings.chartResolution;
-  }
-
+  if ('chartResolution' in settings) delete settings.chartResolution;
   return settings;
 }
 
@@ -143,7 +326,6 @@ function loadSettings(): void {
     if (raw) {
       const settings = migrateOldSettings(raw);
       store.dispatch({ type: 'SETTINGS_LOADED', settings });
-      // Re-persist migrated settings
       localStorage.setItem('even-market-settings', JSON.stringify(store.getState().settings));
     }
   } catch { /* use defaults */ }
@@ -162,39 +344,33 @@ export async function initGlassesRenderer(): Promise<void> {
 
   store = createStore();
   poller = new Poller(store);
-
-  // Load persisted settings (with migration)
   loadSettings();
 
-  // Try to connect SDK
   const sdkHub = new EvenHubBridge();
-  sdkHub.init().then(() => {
+  sdkHub.init().then(async () => {
     hub = sdkHub;
     store.dispatch({ type: 'CONNECTION_STATUS', status: 'connected' });
-    flushDisplay(store.getState()).catch(() => {});
+
+    const setupOk = await hub.setupTextPage();
+    if (setupOk) {
+      flushDisplay(store.getState());
+    }
+
     hub.onEvent((event) => {
       const action = mapEvenHubEvent(event, store.getState());
-      if (action) {
-        store.dispatch(action);
-      }
+      if (action) store.dispatch(action);
     });
   }).catch(() => {});
 
-  await flushDisplay(store.getState());
-
   store.subscribe((state, prev) => {
     if (shouldUpdateDisplay(state, prev)) {
-      flushDisplay(state).catch(() => {});
+      flushDisplay(state, prev);
     }
     handleSideEffects(state, prev);
   });
 
-  // Start data fetching (no API key needed for Yahoo Finance)
   poller.start();
-
   activateKeepAlive();
 
-  // Splash → watchlist transition (show splash for at least 1s)
   setTimeout(() => store.dispatch({ type: 'APP_INIT' }), 1000);
-
 }

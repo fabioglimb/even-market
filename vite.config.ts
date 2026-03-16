@@ -1,4 +1,6 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { request as httpsRequest } from 'node:https';
@@ -52,7 +54,11 @@ function yahooFinanceProxy(): Plugin {
 
 export default defineConfig({
   root: appRoot,
-  plugins: [yahooFinanceProxy()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    yahooFinanceProxy(),
+  ],
   server: {
     host: '0.0.0.0',
     port: 5173,

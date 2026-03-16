@@ -1,5 +1,6 @@
 import type { Candle } from '../state/types';
-import { CHART_AREA } from './layout';
+
+const CHART_AREA = { x: 18, y: 10, w: 540, h: 80 };
 
 const VIEWPORT_SIZE = 30;
 
