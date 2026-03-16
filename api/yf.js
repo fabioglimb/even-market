@@ -1,8 +1,6 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import https from 'node:https';
+const https = require('https');
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS preflight
+module.exports = (req, res) => {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -10,24 +8,18 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  const { path } = req.query;
-  const targetPath = '/' + (Array.isArray(path) ? path.join('/') : path || '');
-
-  // Get query params from the original URL (excluding the path param)
-  const url = new URL(req.url ?? '/', `https://${req.headers.host}`);
+  // Build the Yahoo Finance path from query params
+  // The rewrite sends /yf-api/v8/finance/chart/AAPL?range=3mo -> /api/yf?p=/v8/finance/chart/AAPL&range=3mo
+  const basePath = req.query.p || '/';
   const params = new URLSearchParams();
-  for (const [key, val] of url.searchParams.entries()) {
-    if (key !== 'path') params.set(key, val);
+  for (const [key, val] of Object.entries(req.query)) {
+    if (key !== 'p') params.set(key, val);
   }
   const qs = params.toString();
-  const fullPath = qs ? `${targetPath}?${qs}` : targetPath;
+  const fullPath = qs ? `${basePath}?${qs}` : basePath;
 
-  // Try multiple Yahoo Finance hostnames (some may be blocked on cloud IPs)
-  const hosts = [
-    'query1.finance.yahoo.com',
-    'query2.finance.yahoo.com',
-  ];
-  const hostname = hosts[Math.floor(Math.random() * hosts.length)]!;
+  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+  const hostname = hosts[Math.floor(Math.random() * hosts.length)];
 
   const options = {
     hostname,
@@ -45,9 +37,9 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
 
   const proxyReq = https.request(options, (proxyRes) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', proxyRes.headers['content-type'] ?? 'application/json');
+    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
     res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
-    res.status(proxyRes.statusCode ?? 502);
+    res.status(proxyRes.statusCode || 502);
     proxyRes.pipe(res);
   });
 
@@ -61,4 +53,4 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   proxyReq.end();
-}
+};
