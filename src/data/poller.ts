@@ -1,6 +1,6 @@
 import type { Store } from '../state/store';
 import type { ChartResolution } from '../state/types';
-import { getQuotes, getCandles, resolutionToRange } from './yahoo-finance';
+import { getQuotes, getCandles, getCandlesByPeriod, resolutionToRange, resolutionToHistoryStep } from './yahoo-finance';
 
 export class Poller {
   private store: Store;
@@ -66,6 +66,28 @@ export class Poller {
       const candles = await getCandles(symbol, res, range);
       if (!this.disposed) {
         this.store.dispatch({ type: 'CANDLES_LOADED', symbol, resolution: res, candles });
+      }
+    } catch (err) {
+      void err;
+      this.store.dispatch({ type: 'LOADING', loading: false });
+    }
+  }
+
+  async fetchOlderCandles(symbol: string, resolution: ChartResolution): Promise<void> {
+    if (this.disposed) return;
+    const state = this.store.getState();
+    if (state.candles.length === 0) return;
+
+    const earliestTime = state.candles[0]!.time;
+    const step = resolutionToHistoryStep(resolution);
+    const period1 = earliestTime - step;
+    const period2 = earliestTime;
+
+    this.store.dispatch({ type: 'LOADING', loading: true });
+    try {
+      const candles = await getCandlesByPeriod(symbol, resolution, period1, period2);
+      if (!this.disposed) {
+        this.store.dispatch({ type: 'CANDLES_PREPEND', candles });
       }
     } catch (err) {
       void err;

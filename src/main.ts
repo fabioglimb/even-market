@@ -4,7 +4,7 @@
  * canvas renderer (hidden, pushes to glasses via SDK).
  */
 
-import { initGlassesRenderer, getStore } from './glass/bootstrap';
+import { initGlassesRenderer, getStore, getPoller } from './glass/bootstrap';
 import { initWebUI } from './web/main';
 import { bindKeyboard } from './input/keyboard';
 
@@ -13,9 +13,10 @@ async function boot(): Promise<void> {
   await initGlassesRenderer();
 
   const store = getStore();
+  const poller = getPoller();
 
   // Boot web UI
-  initWebUI(store);
+  initWebUI(store, poller);
 
   // Bind keyboard for web dev testing
   bindKeyboard(store);

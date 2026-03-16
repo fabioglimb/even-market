@@ -3,8 +3,8 @@ const TAP_DUPLICATE_DEBOUNCE_MS = 90;
 const DOUBLE_TAP_DUPLICATE_DEBOUNCE_MS = 140;
 const SCROLL_SUPPRESS_AFTER_TAP_MS = 110;
 
-const SAME_DIRECTION_DEBOUNCE_MS = 56;
-const DIRECTION_CHANGE_DEBOUNCE_MS = 20;
+const SAME_DIRECTION_DEBOUNCE_MS = 350;
+const DIRECTION_CHANGE_DEBOUNCE_MS = 50;
 
 let lastTapTime = 0;
 let lastTapKind: 'tap' | 'double' | null = null;
@@ -34,9 +34,19 @@ export function isScrollSuppressed(): boolean {
 
 let lastScrollTime = 0;
 let lastScrollDir: 'prev' | 'next' | null = null;
+let textUpdateTime = 0;
+const SCROLL_SUPPRESS_AFTER_TEXT_MS = 80;
+
+export function notifyTextUpdate(): void {
+  textUpdateTime = Date.now();
+}
 
 export function isScrollDebounced(direction: 'prev' | 'next'): boolean {
   const now = Date.now();
+
+  // Suppress scrolls briefly after a text update (G2 re-layout fires spurious events)
+  if (now - textUpdateTime < SCROLL_SUPPRESS_AFTER_TEXT_MS) return true;
+
   const threshold =
     direction === lastScrollDir ? SAME_DIRECTION_DEBOUNCE_MS : DIRECTION_CHANGE_DEBOUNCE_MS;
 

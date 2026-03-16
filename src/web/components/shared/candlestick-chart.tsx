@@ -13,18 +13,35 @@ interface CandlestickChartProps {
   candles: Candle[];
   resolution: ChartResolution;
   onHover?: (candle: Candle | null, index: number) => void;
+  onLoadMore?: () => void;
 }
 
-function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProps) {
+function CandlestickChart({ candles, resolution, onHover, onLoadMore }: CandlestickChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [viewStart, setViewStart] = useState(0);
   const [viewCount, setViewCount] = useState(0);
   const dragRef = useRef<{ startX: number; startViewStart: number } | null>(null);
+  const loadMoreCalledRef = useRef(false);
+  const prevCandleCountRef = useRef(0);
 
-  // Reset viewport when candles change
+  // Reset viewport when candles array is replaced (new symbol/resolution)
+  // But when candles are prepended, shift viewStart to keep the same view
   useEffect(() => {
-    setViewStart(0);
-    setViewCount(candles.length);
+    const prevCount = prevCandleCountRef.current;
+    const newCount = candles.length;
+    prevCandleCountRef.current = newCount;
+
+    if (prevCount === 0 || newCount < prevCount) {
+      // Fresh load or reset — show all
+      setViewStart(0);
+      setViewCount(newCount);
+      loadMoreCalledRef.current = false;
+    } else if (newCount > prevCount) {
+      // Candles were prepended — shift view to maintain position
+      const added = newCount - prevCount;
+      setViewStart((s) => s + added);
+      loadMoreCalledRef.current = false;
+    }
   }, [candles.length]);
 
   const clampView = useCallback(
@@ -34,6 +51,17 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
       return { start: s, count: c };
     },
     [candles.length],
+  );
+
+  // Trigger loadMore when at left edge
+  const checkLoadMore = useCallback(
+    (start: number) => {
+      if (start === 0 && onLoadMore && !loadMoreCalledRef.current && candles.length > 0) {
+        loadMoreCalledRef.current = true;
+        onLoadMore();
+      }
+    },
+    [onLoadMore, candles.length],
   );
 
   const visibleCandles = candles.slice(viewStart, viewStart + viewCount);
@@ -63,8 +91,9 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
       const clamped = clampView(newStart, newCount);
       setViewStart(clamped.start);
       setViewCount(clamped.count);
+      checkLoadMore(clamped.start);
     },
-    [candles.length, viewStart, viewCount, clampView],
+    [candles.length, viewStart, viewCount, clampView, checkLoadMore],
   );
 
   // Drag to pan
@@ -89,6 +118,7 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
         const newStart = dragRef.current.startViewStart + shift;
         const clamped = clampView(newStart, viewCount);
         setViewStart(clamped.start);
+        checkLoadMore(clamped.start);
         return;
       }
 
@@ -104,7 +134,7 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
         onHover(visibleCandles[idx]!, viewStart + idx);
       }
     },
-    [visibleCandles, viewStart, viewCount, onHover, clampView],
+    [visibleCandles, viewStart, viewCount, onHover, clampView, checkLoadMore],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -147,6 +177,7 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
         const shift = Math.round(-dx * candlesPerPixel);
         const clamped = clampView(svs + shift, svc);
         setViewStart(clamped.start);
+        checkLoadMore(clamped.start);
       } else if (cur.length >= 2 && prev.length >= 2) {
         // Pinch → zoom
         const prevDist = Math.abs(prev[0]!.x - prev[1]!.x) || 1;
@@ -160,9 +191,10 @@ function CandlestickChart({ candles, resolution, onHover }: CandlestickChartProp
         const clamped = clampView(newStart, newCount);
         setViewStart(clamped.start);
         setViewCount(clamped.count);
+        checkLoadMore(clamped.start);
       }
     },
-    [candles.length, clampView],
+    [candles.length, clampView, checkLoadMore],
   );
 
   return (
@@ -251,10 +283,17 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
     // Body
     const bodyTop = priceY(Math.max(c.open, c.close));
     const bodyBot = priceY(Math.min(c.open, c.close));
-    ctx.fillStyle = isUp ? colorUp : colorDown;
-    ctx.fillRect(cx - bodyW / 2, bodyTop, bodyW, Math.max(1, bodyBot - bodyTop));
+    const bodyH = Math.max(1, bodyBot - bodyTop);
+    if (isUp) {
+      ctx.fillStyle = colorUp;
+      ctx.fillRect(cx - bodyW / 2, bodyTop, bodyW, bodyH);
+    } else {
+      ctx.strokeStyle = colorDown;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - bodyW / 2, bodyTop, bodyW, bodyH);
+    }
 
-    // Volume bar
+    // Volume bar — always filled (green/red)
     const volH = (c.volume / maxVol) * VOLUME_H;
     const volY = CHART_H - PADDING.bottom - volH;
     ctx.fillStyle = isUp ? colorUpAlpha : colorDownAlpha;
@@ -262,7 +301,7 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
   }
 
   // X-axis date labels
-  ctx.fillStyle = '#666';
+  ctx.fillStyle = '#6b6054';
   ctx.font = '10px monospace';
   ctx.textAlign = 'center';
   const step = Math.max(1, Math.floor(candles.length / 8));

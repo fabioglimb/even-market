@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { Candle, ChartResolution } from '../../state/types';
 import { formatPrice, formatPercent } from '../../utils/format';
 import { useSelector, useDispatch } from '../hooks/use-store';
+import { usePoller } from '../contexts/poller-context';
 import { Page } from '../components/shared/page';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -22,6 +23,7 @@ const RES_OPTIONS = [
 
 function ChartScreen() {
   const dispatch = useDispatch();
+  const poller = usePoller();
   const graphic = useSelector((s) => {
     const g = s.settings.graphics.find((g) => g.id === s.selectedGraphicId);
     return g ?? null;
@@ -34,6 +36,12 @@ function ChartScreen() {
   const handleHover = useCallback((candle: Candle | null) => {
     setHoveredCandle(candle);
   }, []);
+
+  const handleLoadMore = useCallback(() => {
+    if (graphic) {
+      poller.fetchOlderCandles(graphic.symbol, graphic.resolution);
+    }
+  }, [poller, graphic]);
 
   if (!graphic) {
     return (
@@ -91,6 +99,7 @@ function ChartScreen() {
           candles={candles}
           resolution={graphic.resolution}
           onHover={handleHover}
+          onLoadMore={handleLoadMore}
         />
       </Card>
       <ChartInfo candle={hoveredCandle} resolution={graphic.resolution} />

@@ -9,6 +9,7 @@ export type Action =
   | { type: 'SELECT_GRAPHIC'; graphicId: string }
   | { type: 'QUOTES_UPDATED'; quotes: Record<string, StockQuote> }
   | { type: 'CANDLES_LOADED'; symbol: string; resolution: ChartResolution; candles: Candle[] }
+  | { type: 'CANDLES_PREPEND'; candles: Candle[] }
   | { type: 'GRAPHIC_ADD'; symbol: string; resolution: ChartResolution }
   | { type: 'GRAPHIC_REMOVE'; graphicId: string }
   | { type: 'CYCLE_RESOLUTION'; graphicId: string }

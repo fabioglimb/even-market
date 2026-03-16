@@ -4,49 +4,146 @@ import type { AppState, GraphicEntry, ChartResolution } from '../state/types';
 import { makeGraphicId } from '../state/types';
 import { getDisplayData } from '../state/selectors';
 import { mapEvenHubEvent } from '../input/action-map';
-import { renderToCanvasDirect, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
+import { notifyTextUpdate } from '../input/gestures';
+import { renderToCanvasDirect, drawCandlesInto, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
 import { encodeTilesBatch, resetTileCache } from './png-utils';
-import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, VIEWPORT_PER_RESOLUTION } from './layout';
+import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from './layout';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
 import { activateKeepAlive } from '../utils/keep-alive';
 import { Poller } from '../data/poller';
 
 // ── Splash ──
 
-function renderSplashImage(): Uint8Array {
-  const W = 200, H = 100;
+const SPLASH_CANDLES_KEY = 'even-market-splash-candles';
+
+// Fallback candles for first boot (before any real data is saved)
+const DEFAULT_SPLASH_CANDLES = [
+  { open: 180, high: 184, low: 178, close: 182, volume: 5000 },
+  { open: 182, high: 186, low: 180, close: 175, volume: 7000 },
+  { open: 175, high: 179, low: 173, close: 177, volume: 4500 },
+  { open: 177, high: 178, low: 170, close: 171, volume: 8000 },
+  { open: 171, high: 175, low: 169, close: 174, volume: 6000 },
+  { open: 174, high: 176, low: 168, close: 169, volume: 9000 },
+  { open: 169, high: 173, low: 167, close: 172, volume: 5500 },
+  { open: 172, high: 174, low: 164, close: 165, volume: 10000 },
+  { open: 165, high: 170, low: 163, close: 168, volume: 7500 },
+  { open: 168, high: 169, low: 160, close: 161, volume: 8500 },
+  { open: 161, high: 166, low: 159, close: 164, volume: 6500 },
+  { open: 164, high: 165, low: 155, close: 156, volume: 11000 },
+  { open: 156, high: 160, low: 153, close: 158, volume: 7000 },
+  { open: 158, high: 159, low: 148, close: 150, volume: 12000 },
+];
+
+function loadSplashCandles(): { open: number; high: number; low: number; close: number; volume?: number }[] {
+  try {
+    const raw = localStorage.getItem(SPLASH_CANDLES_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0) return arr;
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_SPLASH_CANDLES;
+}
+
+function saveSplashCandles(candles: { open: number; high: number; low: number; close: number; volume: number }[]): void {
+  try {
+    // Save last 16 candles for the splash screen — few enough to look like real candlesticks
+    const slice = candles.slice(-16).map((c) => ({
+      open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
+    }));
+    localStorage.setItem(SPLASH_CANDLES_KEY, JSON.stringify(slice));
+  } catch { /* ignore */ }
+}
+
+/** Render the splash candle chart as a 200x100 image. */
+function renderSplashTiles(): { id: number; name: string; bytes: Uint8Array }[] {
+  const W = G2_IMAGE_MAX_W;  // 200
+  const H = G2_IMAGE_MAX_H;  // 100
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d')!;
   ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H);
 
+  // Original 14 hand-crafted candles (rising trend, from first commit)
   const candles = [
-    {o:.92,h:.86,l:.95,c:.87},{o:.87,h:.70,l:.90,c:.72},{o:.72,h:.67,l:.78,c:.76},
-    {o:.76,h:.58,l:.79,c:.60},{o:.60,h:.55,l:.63,c:.57},{o:.57,h:.52,l:.66,c:.64},
-    {o:.64,h:.60,l:.67,c:.62},{o:.62,h:.42,l:.65,c:.44},{o:.44,h:.38,l:.52,c:.50},
-    {o:.50,h:.46,l:.53,c:.48},{o:.48,h:.30,l:.51,c:.32},{o:.32,h:.26,l:.38,c:.36},
-    {o:.36,h:.22,l:.39,c:.24},{o:.24,h:.08,l:.28,c:.12},
+    { o: 0.92, h: 0.86, l: 0.95, c: 0.87 },
+    { o: 0.87, h: 0.70, l: 0.90, c: 0.72 },
+    { o: 0.72, h: 0.67, l: 0.78, c: 0.76 },
+    { o: 0.76, h: 0.58, l: 0.79, c: 0.60 },
+    { o: 0.60, h: 0.55, l: 0.63, c: 0.57 },
+    { o: 0.57, h: 0.52, l: 0.66, c: 0.64 },
+    { o: 0.64, h: 0.60, l: 0.67, c: 0.62 },
+    { o: 0.62, h: 0.42, l: 0.65, c: 0.44 },
+    { o: 0.44, h: 0.38, l: 0.52, c: 0.50 },
+    { o: 0.50, h: 0.46, l: 0.53, c: 0.48 },
+    { o: 0.48, h: 0.30, l: 0.51, c: 0.32 },
+    { o: 0.32, h: 0.26, l: 0.38, c: 0.36 },
+    { o: 0.36, h: 0.22, l: 0.39, c: 0.24 },
+    { o: 0.24, h: 0.08, l: 0.28, c: 0.12 },
   ];
-  const chartX = 20, chartW = 160, chartTop = 5, chartH = 55, gap = 2;
-  const cw = Math.floor((chartW - gap * (candles.length - 1)) / candles.length);
+
+  // Chart area scaled to 200x100
+  const chartX = 10, chartTop = 3;
+  const chartW = 180, chartH = 55;
+  const gap = 2;
+  const candleW = Math.floor((chartW - gap * (candles.length - 1)) / candles.length);
+
   for (let i = 0; i < candles.length; i++) {
     const cd = candles[i]!;
-    const x = chartX + i * (cw + gap), midX = x + cw / 2;
-    const isUp = cd.c <= cd.o, color = isUp ? '#d0d0d0' : '#505050';
-    ctx.strokeStyle = color; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(midX, chartTop + cd.h * chartH); ctx.lineTo(midX, chartTop + cd.l * chartH); ctx.stroke();
-    const bTop = chartTop + Math.min(cd.o, cd.c) * chartH;
-    const bH = Math.max(2, (Math.max(cd.o, cd.c) - Math.min(cd.o, cd.c)) * chartH);
-    if (isUp) { ctx.fillStyle = color; ctx.fillRect(x, bTop, cw, bH); }
-    else { ctx.strokeRect(x, bTop, cw, bH); }
-  }
-  ctx.fillStyle = '#e0e0e0'; ctx.font = 'bold 16px "Courier New", monospace';
-  ctx.textAlign = 'center'; ctx.fillText('EvenMarket', W / 2, 80);
-  ctx.font = '10px "Courier New", monospace'; ctx.fillStyle = '#808080';
-  ctx.fillText('Loading...', W / 2, 94); ctx.textAlign = 'left';
+    const x = chartX + i * (candleW + gap);
+    const midX = x + candleW / 2;
+    const isUp = cd.c <= cd.o;
 
-  const enc = encodeTilesBatch(c, [{ crop: { sx: 0, sy: 0, sw: W, sh: H }, name: 'splash' }], W, H)[0];
-  return enc?.bytes ?? new Uint8Array(0);
+    const wickTop = chartTop + cd.h * chartH;
+    const wickBot = chartTop + cd.l * chartH;
+    const bodyTop = chartTop + Math.min(cd.o, cd.c) * chartH;
+    const bodyBot = chartTop + Math.max(cd.o, cd.c) * chartH;
+    const bodyH = Math.max(2, bodyBot - bodyTop);
+
+    const color = isUp ? '#d0d0d0' : '#505050';
+
+    // Wick
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(midX, wickTop);
+    ctx.lineTo(midX, wickBot);
+    ctx.stroke();
+
+    // Body: filled for up, outline for down
+    if (isUp) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, bodyTop, candleW, bodyH);
+    } else {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, bodyTop, candleW, bodyH);
+    }
+  }
+
+  // "EvenMarket" text below candles
+  ctx.fillStyle = '#e0e0e0';
+  ctx.font = 'bold 16px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('EvenMarket', W / 2, 78);
+  ctx.textAlign = 'left';
+
+  // Encode left tile (x=0, aligned with text below)
+  const enc = encodeTilesBatch(c, [{ crop: { sx: 0, sy: 0, sw: W, sh: H }, name: 'splash' }], W, H)[0]!;
+  const leftTile = IMAGE_TILES[0]!;
+
+  // Black tiles for center and right
+  const black = document.createElement('canvas');
+  black.width = W; black.height = H;
+  const bctx = black.getContext('2d')!;
+  bctx.fillStyle = '#000000'; bctx.fillRect(0, 0, W, H);
+  const blackEnc = encodeTilesBatch(black, [{ crop: { sx: 0, sy: 0, sw: W, sh: H }, name: 'black' }], W, H)[0]!;
+
+  return [
+    { id: leftTile.id, name: leftTile.name, bytes: enc.bytes },
+    { id: IMAGE_TILES[1]!.id, name: IMAGE_TILES[1]!.name, bytes: blackEnc.bytes },
+    { id: IMAGE_TILES[2]!.id, name: IMAGE_TILES[2]!.name, bytes: blackEnc.bytes },
+  ];
 }
 
 let hub: EvenHubBridge | null = null;
@@ -58,19 +155,26 @@ let flashTimer: ReturnType<typeof setInterval> | null = null;
 
 function getDesiredLayout(state: AppState): PageLayout {
   if (state.screen === 'splash') return 'splash';
-  return state.screen === 'stock-detail' ? 'chart' : 'text';
+  if (state.screen === 'home') return 'home' as PageLayout;
+  if (state.screen === 'stock-detail') return 'chart';
+  return 'text';
 }
 
 async function ensureLayout(state: AppState): Promise<void> {
   if (!hub || !hub.pageReady) return;
   const desired = getDesiredLayout(state);
   if (hub.currentLayout === desired) return;
-  if (desired === 'splash') return; // splash is set at init only
+  if (desired === 'splash') return;
 
-  if (desired === 'chart') {
+  if (state.screen === 'home') {
+    await hub.switchToHomeLayout(buildHomeText(state));
+  } else if (desired === 'chart') {
     await hub.switchToChartLayout(buildChartTopText(state));
-  } else {
-    await hub.switchToTextLayout(buildFullText(state));
+  } else if (state.screen === 'watchlist') {
+    const cols = buildWatchlistColumns(state);
+    await hub.switchToWatchlist(cols.sym, cols.price, cols.pct);
+  } else if (state.screen === 'settings') {
+    await hub.switchToSettings(buildFullText(state));
   }
 }
 
@@ -82,19 +186,31 @@ let textPending = false;
 async function flushText(state: AppState): Promise<void> {
   if (!hub || !hub.pageReady) return;
 
-  // If a text send is in flight, mark pending and return — we'll catch up after
   if (textInFlight) { textPending = true; return; }
   textInFlight = true;
   try {
-    // Only switch layout when needed — avoid async overhead on every update
     const desired = getDesiredLayout(state);
     if (hub.currentLayout !== desired && desired !== 'splash') {
       await ensureLayout(state);
     }
-    const text = hub.currentLayout === 'chart'
-      ? buildChartTopText(state)
-      : buildFullText(state);
-    hub.updateText(text).catch(() => {}).finally(() => {
+
+    notifyTextUpdate();
+
+    let updatePromise: Promise<void>;
+    if (state.screen === 'home') {
+      updatePromise = hub.updateHomeText(buildHomeText(state));
+    } else if (hub.currentLayout === 'chart') {
+      updatePromise = hub.updateChartText(buildChartTopText(state));
+    } else if (state.screen === 'watchlist') {
+      const cols = buildWatchlistColumns(state);
+      updatePromise = hub.updateWatchlist(cols.sym, cols.price, cols.pct);
+    } else if (state.screen === 'settings') {
+      updatePromise = hub.updateSettings(buildFullText(state));
+    } else {
+      updatePromise = hub.updateText(buildFullText(state));
+    }
+
+    updatePromise.catch(() => {}).finally(() => {
       textInFlight = false;
       if (textPending) {
         textPending = false;
@@ -127,12 +243,20 @@ function candleToTile(candleIdx: number, totalCandles: number, viewportSize: num
 }
 
 async function flushImages(state: AppState, prev?: AppState): Promise<void> {
-  if (!hub || !hub.pageReady || hub.currentLayout !== 'chart') return;
+  if (!hub || !hub.pageReady || (hub.currentLayout !== 'chart' && hub.currentLayout !== 'home')) return;
   if (imgBusy) { imgDirty = true; return; }
 
   imgBusy = true;
   imgDirty = false;
   try {
+    // Home screen: render splash image (single tile)
+    if (state.screen === 'home') {
+      const tiles = renderSplashTiles();
+      await hub.sendImage(tiles[0]!.id, tiles[0]!.name, tiles[0]!.bytes);
+      imgBusy = false;
+      return;
+    }
+
     const data = getDisplayData(state);
     if (!data.chartData || data.chartData.candles.length === 0) return;
 
@@ -192,8 +316,8 @@ async function flushImages(state: AppState, prev?: AppState): Promise<void> {
 
 function flushDisplay(state: AppState, prev?: AppState): void {
   flushText(state).catch(() => {});
-  if (getDesiredLayout(state) === 'chart') {
-    // Reset on data change only — hash check handles highlight diffs naturally
+  const layout = getDesiredLayout(state);
+  if (layout === 'chart' || layout === 'home') {
     if (prev && (
       prev.screen !== state.screen ||
       prev.candles !== state.candles ||
@@ -226,41 +350,85 @@ function padL(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
 }
 
-/** Full-screen text for watchlist/settings/splash. */
+/** Home screen text (below chart image tiles): EvenMarket + Watchlist/Settings buttons. */
+function buildHomeText(state: AppState): string {
+  const hi = state.highlightedIndex;
+  const wlCursor = hi === 0 ? '\u25B6 ' : '  ';
+  const setCursor = hi === 1 ? '\u25B6 ' : '  ';
+  return `\n${wlCursor}Watchlist\n${setCursor}Settings`;
+}
+
+/** Build 3 column strings for the watchlist (symbol, price, percent). */
+function buildWatchlistColumns(state: AppState): { sym: string; price: string; pct: string } {
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const hi = state.highlightedIndex;
+  const totalItems = state.settings.graphics.length;
+
+  const MAX_VISIBLE = 5;
+
+  // Sliding window
+  let winStart = 0;
+  if (totalItems > MAX_VISIBLE) {
+    winStart = Math.max(0, Math.min(totalItems - MAX_VISIBLE, hi - Math.floor(MAX_VISIBLE / 2)));
+  }
+  const winEnd = Math.min(totalItems, winStart + MAX_VISIBLE);
+
+  // Column 1: title + cursor + symbol
+  const symLines: string[] = [];
+  symLines.push('SYMBOL');
+  symLines.push(winStart > 0 ? '  \u25B2' : '');
+  for (let i = winStart; i < winEnd; i++) {
+    const g = state.settings.graphics[i]!;
+    const res = formatResolutionShort(g.resolution);
+    const cursor = i === hi ? '\u25B6 ' : '  ';
+    symLines.push(`${cursor}${g.symbol} ${res}`);
+  }
+  while (symLines.length < 2 + MAX_VISIBLE) symLines.push('');
+  symLines.push(winEnd < totalItems ? '  \u25BC' : '');
+
+  // Column 2: title + price
+  const priceLines: string[] = [];
+  priceLines.push('PRICE');
+  priceLines.push(''); // up arrow row
+  for (let i = winStart; i < winEnd; i++) {
+    const g = state.settings.graphics[i]!;
+    const q = state.quotes[g.symbol];
+    priceLines.push(q ? formatPrice(q.price) : '---.--');
+  }
+  while (priceLines.length < 2 + MAX_VISIBLE) priceLines.push('');
+  priceLines.push(''); // down arrow row
+
+  // Column 3: title + percent
+  const pctLines: string[] = [];
+  pctLines.push('CHANGE');
+  pctLines.push(''); // up arrow row
+  for (let i = winStart; i < winEnd; i++) {
+    const g = state.settings.graphics[i]!;
+    const q = state.quotes[g.symbol];
+    pctLines.push(q ? formatPercent(q.changePercent) : '--.--');
+  }
+  while (pctLines.length < 2 + MAX_VISIBLE) pctLines.push('');
+  pctLines.push(''); // down arrow row
+
+  return {
+    sym: symLines.join('\n'),
+    price: priceLines.join('\n'),
+    pct: pctLines.join('\n'),
+  };
+}
+
+/** Full-screen text for settings/splash. */
 function buildFullText(state: AppState): string {
   const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   switch (state.screen) {
     case 'splash':
-      return 'EvenMarket\nLoading...';
+      return '';
 
     case 'watchlist': {
-      const lines: string[] = [];
-      const hi = state.highlightedIndex;
-
-      lines.push(`MARKETS${' '.repeat(20)}${time}`);
-      lines.push('');
-
-      for (let i = 0; i < state.settings.graphics.length; i++) {
-        const g = state.settings.graphics[i]!;
-        const q = state.quotes[g.symbol];
-        const cursor = i === hi ? '\u25B6' : '  ';
-        const res = formatResolutionShort(g.resolution);
-
-        if (q) {
-          const sym = padR(`${g.symbol} ${res}`, 11);
-          const price = padL(formatPrice(q.price), 9);
-          const pct = padL(formatPercent(q.changePercent), 8);
-          lines.push(`${cursor} ${sym}${price}  ${pct}`);
-        } else {
-          lines.push(`${cursor} ${padR(`${g.symbol} ${res}`, 11)}   ---.--    --.--`);
-        }
-      }
-
-      lines.push('');
-      const settingsHi = hi === state.settings.graphics.length;
-      lines.push(`${settingsHi ? '\u25B6' : '  '} [Settings]`);
-      return lines.join('\n');
+      // Watchlist uses 3-column layout via buildWatchlistColumns
+      const cols = buildWatchlistColumns(state);
+      return cols.sym; // fallback — actual rendering uses updateWatchlist
     }
 
     case 'settings': {
@@ -293,14 +461,6 @@ function buildFullText(state: AppState): string {
         lines.push(`   Chart:    ${chartLabel}`);
       }
 
-      lines.push('');
-      if (editing) {
-        lines.push('  Scroll to change value');
-        lines.push('  Tap or double-tap to confirm');
-      } else {
-        lines.push('  Tap to edit');
-        lines.push('  Double-tap to go back');
-      }
       return lines.join('\n');
     }
 
@@ -309,7 +469,7 @@ function buildFullText(state: AppState): string {
   }
 }
 
-/** Text below chart: 3 rows. */
+/** Text below chart: header + scrollable candle table. */
 function buildChartTopText(state: AppState): string {
   const g = state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
   if (!g) return 'No graphic';
@@ -320,29 +480,49 @@ function buildChartTopText(state: AppState): string {
   const flash = state.candleFlashPhase ? '\u25CF' : '\u25CB';
   const inBtnMode = !state.candleNavActive && !state.tfNavActive;
   const tfBtn = state.tfNavActive ? `${flash}[${res}]` :
-    (inBtnMode && state.highlightedIndex === 0) ? `\u25B6[${res}]` : ` ${res} `;
+    (inBtnMode && state.highlightedIndex === 0) ? `\u25B6[${res}]` : ` [${res}]`;
   const navBtn = state.candleNavActive ? `${flash}[NAV]` :
-    (inBtnMode && state.highlightedIndex === 1) ? '\u25B6[NAV]' : ' NAV ';
+    (inBtnMode && state.highlightedIndex === 1) ? '\u25B6[NAV]' : ' [NAV]';
 
-  // OHLC source
-  const ci = state.highlightedCandleIndex;
-  const inCandleNav = state.candleNavActive && ci >= 0 && ci < state.candles.length;
-  const src = inCandleNav ? state.candles[ci]! : null;
-  const o = src ? formatPrice(src.open) : formatPrice(q.open);
-  const h = src ? formatPrice(src.high) : formatPrice(q.high);
-  const cl = src ? formatPrice(src.close) : formatPrice(q.price);
-  const l = src ? formatPrice(src.low) : formatPrice(q.low);
-  const vol = src ? formatVolume(src.volume) : formatVolume(q.volume);
-  const dt = src ? formatCandleTime(src.time, g.resolution) : (q.timestamp ? formatCandleTime(q.timestamp) : '');
+  const lines: string[] = [];
 
   // Row 1: symbol, price, change, buttons
-  const row1 = `${g.symbol} $${formatPrice(q.price)} ${formatPercent(q.changePercent)}  ${tfBtn} ${navBtn}`;
-  // Row 2: OHLC
-  const row2 = `O:${o}  H:${h}  C:${cl}  L:${l}`;
-  // Row 3: volume + datetime
-  const row3 = `V:${vol}  ${dt}`;
+  lines.push(`${g.symbol} $${formatPrice(q.price)} ${formatPercent(q.changePercent)}  ${tfBtn} ${navBtn}`);
 
-  return `${row1}\n${row2}\n${row3}`;
+  // Candle list — each candle takes 2 lines (OHLC + Volume/Date)
+  const candles = state.candles;
+  if (candles.length > 0) {
+    const MAX_CANDLES = 2; // 2 candles x 2 lines = 4 lines
+    const ci = state.highlightedCandleIndex;
+    const reversed = [...candles].reverse();
+    const hiReversed = ci >= 0 ? candles.length - 1 - ci : -1;
+
+    let winStart = 0;
+    if (reversed.length > MAX_CANDLES && hiReversed >= 0) {
+      winStart = Math.max(0, Math.min(reversed.length - MAX_CANDLES, hiReversed - Math.floor(MAX_CANDLES / 2)));
+    }
+    const winEnd = Math.min(reversed.length, winStart + MAX_CANDLES);
+
+    for (let i = winStart; i < winEnd; i++) {
+      const cd = reversed[i]!;
+      const selected = i === hiReversed;
+      const row1 = `O:${formatPrice(cd.open)}  H:${formatPrice(cd.high)}  L:${formatPrice(cd.low)}  C:${formatPrice(cd.close)}`;
+      const row2 = `V:${formatVolume(cd.volume)}  ${formatCandleTime(cd.time, g.resolution)}`;
+      if (selected) {
+        lines.push('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+        lines.push(row1);
+        lines.push(row2);
+        lines.push('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+      } else {
+        lines.push(row1);
+        lines.push(row2);
+      }
+    }
+  } else {
+    lines.push('No candle data');
+  }
+
+  return lines.join('\n');
 }
 
 // ── State change detection ──
@@ -382,7 +562,7 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     }
   }
 
-  const needsFlash = (state.screen === 'stock-detail' && (state.candleNavActive || state.tfNavActive))
+  const needsFlash = (state.screen === 'stock-detail' && state.tfNavActive)
     || (state.screen === 'settings' && state.settingsEditActive);
   if (needsFlash && !flashTimer) {
     flashTimer = setInterval(() => {
@@ -397,6 +577,11 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     try {
       localStorage.setItem('even-market-settings', JSON.stringify(state.settings));
     } catch { /* ignore */ }
+  }
+
+  // Persist candles for splash screen
+  if (state.candles !== prev.candles && state.candles.length > 0) {
+    saveSplashCandles(state.candles);
   }
 }
 
@@ -457,15 +642,16 @@ export async function initGlassesRenderer(): Promise<void> {
     hub = sdkHub;
     store.dispatch({ type: 'CONNECTION_STATUS', status: 'connected' });
 
+    // Set up initial text page (required before chart layout switch)
     await hub.setupTextPage();
-    if (hub.pageReady) {
-      await hub.updateText('\n\n\n     \u2581\u2583\u2582\u2585\u2583\u2587\u2584\u2588\u2586\u2588\u2585\u2587\u2588\n\n      EvenMarket\n\n      Loading...');
-    }
 
     hub.onEvent((event) => {
       const action = mapEvenHubEvent(event, store.getState());
       if (action) store.dispatch(action);
     });
+
+    // Go directly to home screen
+    store.dispatch({ type: 'APP_INIT' });
   }).catch(() => {});
 
   store.subscribe((state, prev) => {
@@ -477,6 +663,4 @@ export async function initGlassesRenderer(): Promise<void> {
 
   poller.start();
   activateKeepAlive();
-
-  setTimeout(() => store.dispatch({ type: 'APP_INIT' }), 1000);
 }

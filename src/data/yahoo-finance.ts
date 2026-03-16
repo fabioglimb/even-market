@@ -205,6 +205,69 @@ function mapInterval(resolution: string): string {
   }
 }
 
+/**
+ * Fetch OHLCV candle data for a specific time period using period1/period2.
+ */
+export async function getCandlesByPeriod(
+  symbol: string,
+  interval: string,
+  period1: number,
+  period2: number,
+): Promise<Candle[]> {
+  try {
+    const yahooInterval = mapInterval(interval);
+    const yahooSym = toYahooSymbol(symbol);
+    const p1 = Math.floor(period1 / 1000);
+    const p2 = Math.floor(period2 / 1000);
+    const url = `${BASE_URL}/v8/finance/chart/${encodeURIComponent(yahooSym)}?period1=${p1}&period2=${p2}&interval=${yahooInterval}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) return [];
+
+    const timestamps = result.timestamp;
+    const ohlcv = result.indicators?.quote?.[0];
+    if (!timestamps || !ohlcv) return [];
+
+    const candles: Candle[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const o = ohlcv.open?.[i];
+      const h = ohlcv.high?.[i];
+      const l = ohlcv.low?.[i];
+      const c = ohlcv.close?.[i];
+      const v = ohlcv.volume?.[i];
+      if (o == null || h == null || l == null || c == null) continue;
+      candles.push({
+        time: timestamps[i] * 1000,
+        open: o,
+        high: h,
+        low: l,
+        close: c,
+        volume: v ?? 0,
+      });
+    }
+    return candles;
+  } catch (err) {
+    void err;
+    return [];
+  }
+}
+
+/** How far back to go when loading older candles (in ms). */
+export function resolutionToHistoryStep(resolution: string): number {
+  switch (resolution) {
+    case '1': return 1 * 24 * 60 * 60 * 1000;        // 1 day
+    case '5': return 5 * 24 * 60 * 60 * 1000;        // 5 days
+    case '15': return 5 * 24 * 60 * 60 * 1000;       // 5 days
+    case '60': return 30 * 24 * 60 * 60 * 1000;      // 1 month
+    case 'D': return 90 * 24 * 60 * 60 * 1000;       // 3 months
+    case 'W': return 365 * 24 * 60 * 60 * 1000;      // 1 year
+    case 'M': return 5 * 365 * 24 * 60 * 60 * 1000;  // 5 years
+    default: return 90 * 24 * 60 * 60 * 1000;
+  }
+}
+
 /** Map our chart resolution to a sensible Yahoo range. */
 export function resolutionToRange(resolution: string): string {
   switch (resolution) {

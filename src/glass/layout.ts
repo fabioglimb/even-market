@@ -15,7 +15,7 @@ export const G2_IMAGE_MAX_H = 100;
 // ── Splash layout (1 centered image) ──
 
 export const SPLASH_IMG = {
-  id: 1,
+  id: 2,
   name: 'splash',
   x: Math.floor((DISPLAY_W - G2_IMAGE_MAX_W) / 2),
   y: Math.floor((DISPLAY_H - G2_IMAGE_MAX_H) / 2),
@@ -26,13 +26,13 @@ export const SPLASH_IMG = {
 // ── Viewport size per timeframe (ideal candle count for 576px chart) ──
 
 export const VIEWPORT_PER_RESOLUTION: Record<string, number> = {
-  '1': 60,   // 1 hour
-  '5': 48,   // 4 hours
-  '15': 40,  // 10 hours
-  '60': 36,  // 1.5 days
-  'D': 40,   // 2 months
-  'W': 30,   // 7 months
-  'M': 24,   // 2 years
+  '1': 40,   // 40 min
+  '5': 32,   // ~2.5 hours
+  '15': 28,  // ~7 hours
+  '60': 24,  // 1 day
+  'D': 28,   // ~1.5 months
+  'W': 20,   // ~5 months
+  'M': 16,   // ~1.5 years
 };
 
 // ── Text-only layout ──
@@ -49,7 +49,7 @@ export const TEXT_FULL = {
 const TILE_W = 200;
 const TILE_H = 100;
 const TILE_Y = 0; // images at the top
-const TEXT_BELOW_H = DISPLAY_H - TILE_H; // 188px — tall, short content = minimal bounce
+const TEXT_BELOW_H = DISPLAY_H - TILE_H; // 188px
 
 export const CHART_TEXT = {
   id: 1,

@@ -15,7 +15,7 @@
   --color-negative: #ef5350;
   --color-accent: #f0b429;
   --color-accent-alpha: rgba(240, 180, 41, 0.12);
-  --color-positive-alpha: rgba(38, 166, 154, 0.15);
+  --color-positive-alpha: rgba(38, 166, 154, 0.50);
   --color-negative-alpha: rgba(239, 83, 80, 0.15);
   --color-grid: #2a2519;
   --color-label: #6b6054;

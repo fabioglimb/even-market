@@ -11,7 +11,7 @@ function getViewportSize(resolution?: string): number {
 
 const W = CHART_CANVAS_W;
 const H = CHART_CANVAS_H;
-const PAD = 6;
+const PAD = 2;
 
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
@@ -87,32 +87,88 @@ function drawCandles(c: CanvasRenderingContext2D, candles: Candle[], hlIdx?: num
   }
 
   const cw = W - PAD * 2, ch = H - PAD * 2;
-  const min = Math.min(...view.map((cd) => cd.low)), max = Math.max(...view.map((cd) => cd.high));
-  const range = max - min || 1, maxVol = Math.max(...view.map((cd) => cd.volume)) || 1;
+  const rawMin = Math.min(...view.map((cd) => cd.low));
+  const rawMax = Math.max(...view.map((cd) => cd.high));
+  const margin = (rawMax - rawMin) * 0.05 || 0.01;
+  const min = rawMin - margin, max = rawMax + margin;
+  const range = max - min;
   const gap = 1, bw = Math.max(2, Math.floor(cw / view.length) - gap);
-  const volH = ch * 0.18;
 
   for (let i = 0; i < view.length; i++) {
     const cd = view[i]!, cx = PAD + i * (bw + gap) + bw / 2;
     const isUp = cd.close >= cd.open, isHL = hlIdx != null && (i + offset) === hlIdx;
-    const color = isHL && flash ? '#ffffff' : isHL ? '#c0c0c0' : isUp ? '#d0d0d0' : '#606060';
+    const color = isHL ? '#c0c0c0' : isUp ? '#d0d0d0' : '#606060';
 
-    const wT = PAD + ch - volH - ((cd.high - min) / range) * (ch - volH);
-    const wB = PAD + ch - volH - ((cd.low - min) / range) * (ch - volH);
+    const wT = PAD + ch - ((cd.high - min) / range) * ch;
+    const wB = PAD + ch - ((cd.low - min) / range) * ch;
     c.strokeStyle = color; c.lineWidth = 1;
     c.beginPath(); c.moveTo(cx, wT); c.lineTo(cx, wB); c.stroke();
 
-    const bT = PAD + ch - volH - ((Math.max(cd.open, cd.close) - min) / range) * (ch - volH);
-    const bB = PAD + ch - volH - ((Math.min(cd.open, cd.close) - min) / range) * (ch - volH);
-    c.fillStyle = color; c.fillRect(cx - bw / 2, bT, bw, Math.max(1, bB - bT));
-
-    const vH = (cd.volume / maxVol) * volH;
-    c.fillStyle = isUp ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
-    c.fillRect(cx - bw / 2, PAD + ch - vH, bw, vH);
+    const bT = PAD + ch - ((Math.max(cd.open, cd.close) - min) / range) * ch;
+    const bB = PAD + ch - ((Math.min(cd.open, cd.close) - min) / range) * ch;
+    const bodyH = Math.max(2, bB - bT);
+    if (isUp || isHL) {
+      c.fillStyle = color; c.fillRect(cx - bw / 2, bT, bw, bodyH);
+    } else {
+      c.strokeStyle = color; c.lineWidth = 1;
+      c.strokeRect(cx - bw / 2, bT, bw, bodyH);
+    }
 
     if (isHL) {
       c.strokeStyle = 'rgba(255,255,255,0.2)'; c.lineWidth = 1; c.setLineDash([2, 3]);
       c.beginPath(); c.moveTo(cx, PAD); c.lineTo(cx, PAD + ch); c.stroke(); c.setLineDash([]);
+    }
+  }
+}
+
+/** Draw candles into an arbitrary-sized context (for splash, etc.) — matches the glasses chart style */
+export function drawCandlesInto(
+  c: CanvasRenderingContext2D,
+  candles: { open: number; high: number; low: number; close: number; volume?: number }[],
+  width: number,
+  height: number,
+): void {
+  if (candles.length === 0) return;
+  const pad = 6;
+  const cw = width - pad * 2, ch = height - pad * 2;
+  const min = Math.min(...candles.map((cd) => cd.low));
+  const max = Math.max(...candles.map((cd) => cd.high));
+  const range = max - min || 1;
+  const hasVolume = candles.some((cd) => (cd.volume ?? 0) > 0);
+  const maxVol = hasVolume ? Math.max(...candles.map((cd) => cd.volume ?? 0)) || 1 : 1;
+  const volH = hasVolume ? ch * 0.18 : 0;
+  const priceH = ch - volH;
+  const gap = 2, bw = Math.max(2, Math.floor((cw - gap * (candles.length - 1)) / candles.length));
+
+  for (let i = 0; i < candles.length; i++) {
+    const cd = candles[i]!;
+    const x = pad + i * (bw + gap);
+    const cx = x + bw / 2;
+    const isUp = cd.close >= cd.open;
+    const color = isUp ? '#d0d0d0' : '#606060';
+
+    // Wick
+    const wT = pad + priceH - ((cd.high - min) / range) * priceH;
+    const wB = pad + priceH - ((cd.low - min) / range) * priceH;
+    c.strokeStyle = color; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(cx, wT); c.lineTo(cx, wB); c.stroke();
+
+    // Body
+    const bT = pad + priceH - ((Math.max(cd.open, cd.close) - min) / range) * priceH;
+    const bB = pad + priceH - ((Math.min(cd.open, cd.close) - min) / range) * priceH;
+    const bodyH = Math.max(2, bB - bT);
+    if (isUp) {
+      c.fillStyle = color; c.fillRect(x, bT, bw, bodyH);
+    } else {
+      c.strokeStyle = color; c.lineWidth = 1;
+      c.strokeRect(x, bT, bw, bodyH);
+    }
+
+    // Volume bar
+    if (hasVolume && cd.volume) {
+      const vH = (cd.volume / maxVol) * volH;
+      c.fillStyle = isUp ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
+      c.fillRect(x, pad + ch - vH, bw, vH);
     }
   }
 }

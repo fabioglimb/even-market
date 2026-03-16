@@ -9,7 +9,7 @@ const RESOLUTIONS: ChartResolution[] = ['1', '5', '15', '60', 'D', 'W', 'M'];
 export function reduce(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'APP_INIT':
-      return { ...state, screen: 'watchlist' };
+      return { ...state, screen: 'home', highlightedIndex: 0 };
 
     case 'NAVIGATE':
       return { ...state, screen: action.screen, highlightedIndex: 0 };
@@ -39,11 +39,14 @@ export function reduce(state: AppState, action: Action): AppState {
         }
         return {
           ...state,
-          screen: 'watchlist',
+          screen: 'home',
           selectedGraphicId: null,
-          highlightedIndex: 0,
+          highlightedIndex: 1,
           settingsEditActive: false,
         };
+      }
+      if (state.screen === 'watchlist') {
+        return { ...state, screen: 'home', highlightedIndex: 0 };
       }
       return state;
     }
@@ -54,9 +57,9 @@ export function reduce(state: AppState, action: Action): AppState {
         return cycleGraphicResolution(state, state.selectedGraphicId, action.direction === 'down' ? 1 : -1);
       }
       if (state.screen === 'stock-detail' && state.candleNavActive) {
-        // Move highlighted candle within bounds
+        // Move highlighted candle — inverted: down=newer(−1), up=older(+1)
         const maxCandle = state.candles.length - 1;
-        const delta = action.direction === 'down' ? 1 : -1;
+        const delta = action.direction === 'down' ? -1 : 1;
         const current = state.highlightedCandleIndex < 0 ? maxCandle : state.highlightedCandleIndex;
         const next = Math.max(0, Math.min(maxCandle, current + delta));
         return { ...state, highlightedCandleIndex: next };
@@ -67,12 +70,19 @@ export function reduce(state: AppState, action: Action): AppState {
       }
       const maxIndex = getMaxIndex(state);
       const delta = action.direction === 'down' ? 1 : -1;
-      if (state.screen === 'watchlist') {
-        // Wrap: up from first graphic (0) → settings (last), down from settings → first graphic (0)
-        const settingsIdx = state.settings.graphics.length;
+      if (state.screen === 'home') {
+        // Home: 0=Watchlist, 1=Settings — wrap
         let next = state.highlightedIndex + delta;
-        if (next < 0) next = settingsIdx;
-        else if (next > settingsIdx) next = 0;
+        if (next < 0) next = 1;
+        else if (next > 1) next = 0;
+        return { ...state, highlightedIndex: next };
+      }
+      if (state.screen === 'watchlist') {
+        // Wrap within graphics only
+        const maxIdx = state.settings.graphics.length - 1;
+        let next = state.highlightedIndex + delta;
+        if (next < 0) next = maxIdx;
+        else if (next > maxIdx) next = 0;
         return { ...state, highlightedIndex: next };
       }
       const next = Math.max(0, Math.min(maxIndex, state.highlightedIndex + delta));
@@ -80,12 +90,16 @@ export function reduce(state: AppState, action: Action): AppState {
     }
 
     case 'SELECT_HIGHLIGHTED': {
-      if (state.screen === 'watchlist') {
-        const graphics = state.settings.graphics;
-        // Last item is the Settings entry
-        if (state.highlightedIndex === graphics.length) {
+      if (state.screen === 'home') {
+        if (state.highlightedIndex === 0) {
+          return { ...state, screen: 'watchlist', highlightedIndex: 0 };
+        }
+        if (state.highlightedIndex === 1) {
           return { ...state, screen: 'settings', highlightedIndex: 0 };
         }
+      }
+      if (state.screen === 'watchlist') {
+        const graphics = state.settings.graphics;
         const graphic = graphics[state.highlightedIndex];
         if (graphic) {
           return {
@@ -153,6 +167,18 @@ export function reduce(state: AppState, action: Action): AppState {
         candlesCacheTime: Date.now(),
         loading: false,
       };
+
+    case 'CANDLES_PREPEND': {
+      if (action.candles.length === 0) return { ...state, loading: false };
+      // Deduplicate by timestamp
+      const existingTimes = new Set(state.candles.map((c) => c.time));
+      const newCandles = action.candles.filter((c) => !existingTimes.has(c.time));
+      return {
+        ...state,
+        candles: [...newCandles, ...state.candles],
+        loading: false,
+      };
+    }
 
     case 'GRAPHIC_ADD': {
       const sym = action.symbol.toUpperCase().trim();
@@ -291,8 +317,11 @@ function cycleSettingsValue(state: AppState, direction = 1): AppState {
 }
 
 function getMaxIndex(state: AppState): number {
+  if (state.screen === 'home') {
+    return 1; // 0=Watchlist, 1=Settings
+  }
   if (state.screen === 'watchlist') {
-    return state.settings.graphics.length; // graphics + settings entry
+    return state.settings.graphics.length - 1; // graphics only
   }
   if (state.screen === 'stock-detail') {
     return 1; // two buttons: 0=timeframe, 1=candles

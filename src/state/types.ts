@@ -1,4 +1,4 @@
-export type Screen = 'splash' | 'watchlist' | 'stock-detail' | 'settings';
+export type Screen = 'splash' | 'home' | 'watchlist' | 'stock-detail' | 'settings';
 
 export interface StockQuote {
   symbol: string;
