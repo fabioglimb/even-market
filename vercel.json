@@ -1,8 +1,12 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": null,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3"
+    }
+  },
   "rewrites": [
-    { "source": "/yf-api/(.*)", "destination": "/api/yf-api/$1" }
+    { "source": "/yf-api/:path*", "destination": "/api/yf-api/:path*" }
   ]
 }
