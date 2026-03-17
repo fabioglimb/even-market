@@ -64,6 +64,10 @@ export default defineConfig({
     tailwindcss(),
     yahooFinanceProxy(),
   ],
+  resolve: {
+    alias: {},
+    dedupe: ['react', 'react-dom', '@evenrealities/even_hub_sdk', '@jappyjan/even-better-sdk', 'upng-js'],
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,

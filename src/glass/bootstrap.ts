@@ -1,16 +1,20 @@
-import { EvenHubBridge, type PageLayout } from './bridge';
+import { EvenHubBridge } from 'even-toolkit/bridge';
+import type { PageMode } from 'even-toolkit/types';
+import { notifyTextUpdate } from 'even-toolkit/gestures';
+import { encodeTilesBatch, resetTileCache } from 'even-toolkit/png-utils';
+import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from 'even-toolkit/layout';
+import { activateKeepAlive } from 'even-toolkit/keep-alive';
+import { buildActionBar } from 'even-toolkit/action-bar';
 import { createStore } from '../state/store';
 import type { AppState, GraphicEntry, ChartResolution } from '../state/types';
 import { makeGraphicId } from '../state/types';
 import { getDisplayData } from '../state/selectors';
 import { mapEvenHubEvent } from '../input/action-map';
-import { notifyTextUpdate } from '../input/gestures';
 import { renderToCanvasDirect, drawCandlesInto, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
-import { encodeTilesBatch, resetTileCache } from './png-utils';
-import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from './layout';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
-import { activateKeepAlive } from '../utils/keep-alive';
 import { Poller } from '../data/poller';
+
+type PageLayout = PageMode;
 
 // ── Splash ──
 
@@ -435,7 +439,6 @@ function buildFullText(state: AppState): string {
       const s = state.settings;
       const hi = state.highlightedIndex;
       const editing = state.settingsEditActive;
-      const flash = state.candleFlashPhase ? '\u25CF' : '\u25CB';
       const lines: string[] = [];
 
       lines.push(`SETTINGS${' '.repeat(19)}${time}`);
@@ -443,22 +446,32 @@ function buildFullText(state: AppState): string {
 
       // Refresh row
       const refreshLabel = `${s.refreshInterval}s`;
+      const refreshActive = editing && hi === 0 ? 'Refresh' : null;
+      const refreshBar = buildActionBar(
+        ['Refresh'],
+        hi === 0 ? 0 : -1,
+        refreshActive,
+        state.candleFlashPhase,
+      );
       if (editing && hi === 0) {
-        lines.push(`${flash} Refresh:  \u25C0 [${refreshLabel}] \u25B6`);
-      } else if (hi === 0) {
-        lines.push(`\u25B6 Refresh:  ${refreshLabel}`);
+        lines.push(`${refreshBar}  \u25C0 [${refreshLabel}] \u25B6`);
       } else {
-        lines.push(`   Refresh:  ${refreshLabel}`);
+        lines.push(`${refreshBar}  ${refreshLabel}`);
       }
 
       // Chart type row
       const chartLabel = s.chartType === 'sparkline' ? 'Sparkline' : 'Candles';
+      const chartActive = editing && hi === 1 ? 'Chart' : null;
+      const chartBar = buildActionBar(
+        ['Chart'],
+        hi === 1 ? 0 : -1,
+        chartActive,
+        state.candleFlashPhase,
+      );
       if (editing && hi === 1) {
-        lines.push(`${flash} Chart:    \u25C0 [${chartLabel}] \u25B6`);
-      } else if (hi === 1) {
-        lines.push(`\u25B6 Chart:    ${chartLabel}`);
+        lines.push(`${chartBar}    \u25C0 [${chartLabel}] \u25B6`);
       } else {
-        lines.push(`   Chart:    ${chartLabel}`);
+        lines.push(`${chartBar}    ${chartLabel}`);
       }
 
       return lines.join('\n');
@@ -477,17 +490,15 @@ function buildChartTopText(state: AppState): string {
   if (!q) return `${g.symbol}  Loading...`;
 
   const res = formatResolutionShort(g.resolution);
-  const flash = state.candleFlashPhase ? '\u25CF' : '\u25CB';
   const inBtnMode = !state.candleNavActive && !state.tfNavActive;
-  const tfBtn = state.tfNavActive ? `${flash}[${res}]` :
-    (inBtnMode && state.highlightedIndex === 0) ? `\u25B6[${res}]` : ` [${res}]`;
-  const navBtn = state.candleNavActive ? `${flash}[NAV]` :
-    (inBtnMode && state.highlightedIndex === 1) ? '\u25B6[NAV]' : ' [NAV]';
+  const activeLabel = state.tfNavActive ? res : state.candleNavActive ? 'NAV' : null;
+  const selectedIdx = inBtnMode ? state.highlightedIndex : 0;
+  const btnBar = buildActionBar([res, 'NAV'], selectedIdx, activeLabel, state.candleFlashPhase);
 
   const lines: string[] = [];
 
   // Row 1: symbol, price, change, buttons
-  lines.push(`${g.symbol} $${formatPrice(q.price)} ${formatPercent(q.changePercent)}  ${tfBtn} ${navBtn}`);
+  lines.push(`${g.symbol} $${formatPrice(q.price)} ${formatPercent(q.changePercent)}  ${btnBar}`);
 
   // Candle list — each candle takes 2 lines (OHLC + Volume/Date)
   const candles = state.candles;

@@ -1,7 +1,7 @@
 /**
  * Canvas renderer: chart-only for image tiles. 400x100.
  */
-import { CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from './layout';
+import { CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from 'even-toolkit/layout';
 import type { DisplayData } from '../state/selectors';
 import type { Candle } from '../state/types';
 

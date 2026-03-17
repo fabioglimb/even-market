@@ -7,7 +7,7 @@ import type {
 import { OsEventTypeList } from '@evenrealities/even_hub_sdk';
 import type { AppState } from '../state/types';
 import type { Action } from '../state/actions';
-import { tryConsumeTap, isScrollSuppressed, isScrollDebounced } from './gestures';
+import { tryConsumeTap, isScrollSuppressed, isScrollDebounced } from 'even-toolkit/gestures';
 
 export function mapEvenHubEvent(event: EvenHubEvent, state: AppState): Action | null {
   if (!event) return null;
