@@ -1,8 +1,9 @@
 import { createSplash, TILE_PRESETS } from 'even-toolkit/splash';
 
 /**
- * Market splash renderer — candlestick chart + "EvenMarket" name (tile 1),
- * "Loading..." text (tile 2). Canvas is 200x200 (vertical 2-tile layout).
+ * Market splash renderer — candlestick chart + "EvenMarket" name.
+ * Single tile (200x100), top-center on display.
+ * "LOADING..." is shown as text in the menu container below.
  */
 function renderMarketSplash(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const s = Math.min(w / 200, h / 200);
@@ -67,25 +68,20 @@ function renderMarketSplash(ctx: CanvasRenderingContext2D, w: number, h: number)
   ctx.textAlign = 'center';
   ctx.fillText('EvenMarket', w / 2, 78 * s);
 
-  // ── Tile 2: Loading text (bottom 100px, y=100..200) ──
-
-  ctx.fillStyle = '#808080';
-  ctx.font = `bold ${20 * s}px "Courier New", monospace`;
-  ctx.fillText('Loading...', w / 2, 155 * s);
-
   ctx.textAlign = 'left';
 }
 
 /**
- * G2 glasses splash — 2 vertical tiles, top-center on display.
- * Tile 1: Chart + name. Tile 2: "Loading..." (cleared with black on home transition).
+ * G2 glasses splash — 1 image tile (chart + name) top-center,
+ * "LOADING..." as centered text in the menu container below.
  */
 export const marketSplash = createSplash({
-  tiles: 2,
+  tiles: 1,
   tileLayout: 'vertical',
-  tilePositions: TILE_PRESETS.topCenterVertical2,
+  tilePositions: TILE_PRESETS.topCenter1,
+  canvasSize: { w: 200, h: 200 },
   minTimeMs: 2000,
   maxTimeMs: 5000,
-  menuText: '',
+  menuText: '\n\n' + ' '.repeat(48) + 'LOADING...',
   render: renderMarketSplash,
 });
