@@ -1,6 +1,8 @@
 import type { AppState, ChartResolution } from './types';
 import { initialState, makeGraphicId } from './types';
 import type { Action } from './actions';
+import { MARKET_LANGUAGES } from '../utils/i18n';
+import type { MarketLanguage } from '../utils/i18n';
 
 export { initialState };
 
@@ -311,6 +313,12 @@ function cycleSettingsValue(state: AppState, direction = 1): AppState {
       const next = CHART_TYPES[(idx + direction + CHART_TYPES.length) % CHART_TYPES.length]!;
       return { ...state, settings: { ...s, chartType: next } };
     }
+    case 2: {
+      const langIds = MARKET_LANGUAGES.map((l) => l.id);
+      const idx = langIds.indexOf(s.language);
+      const next = langIds[(idx + direction + langIds.length) % langIds.length]!;
+      return { ...state, settings: { ...s, language: next } };
+    }
     default:
       return state;
   }
@@ -327,7 +335,7 @@ function getMaxIndex(state: AppState): number {
     return 1; // two buttons: 0=timeframe, 1=candles
   }
   if (state.screen === 'settings') {
-    return 1; // Refresh, Chart Type
+    return 2; // Refresh, Chart Type, Language
   }
   return 0;
 }

@@ -1,3 +1,5 @@
+import type { MarketLanguage } from '../utils/i18n';
+
 export type Screen = 'splash' | 'home' | 'watchlist' | 'stock-detail' | 'settings';
 
 export interface StockQuote {
@@ -39,6 +41,7 @@ export interface Settings {
   refreshInterval: number;
   graphics: GraphicEntry[];
   chartType: ChartType;
+  language: MarketLanguage;
 }
 
 export interface AppState {
@@ -72,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   refreshInterval: 15,
   graphics: [...DEFAULT_GRAPHICS],
   chartType: 'sparkline',
+  language: 'en' as MarketLanguage,
 };
 
 export const initialState: AppState = {

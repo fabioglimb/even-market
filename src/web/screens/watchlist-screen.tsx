@@ -1,5 +1,6 @@
 import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
+import { useSettings } from '../hooks/use-settings';
 import { useDispatch } from '../hooks/use-store';
 import { Page } from '../components/shared/page';
 import { ScreenHeader } from '../components/shared/screen-header';
@@ -7,17 +8,20 @@ import { TickerInput } from '../components/shared/ticker-input';
 import { Table, TableHeader, TableBody, TableHead, TableRow } from '../components/ui/table';
 import { QuoteRow } from '../components/shared/quote-row';
 import { QuoteCard } from '../components/shared/quote-card';
+import { t } from '../../utils/i18n';
 
 function WatchlistScreen() {
   const dispatch = useDispatch();
   const quotes = useQuotes();
   const graphics = useGraphics();
+  const settings = useSettings();
+  const lang = settings.language;
 
   return (
     <Page>
       <ScreenHeader
-        title="EvenMarket"
-        subtitle="Real-time market data on your glasses"
+        title={t('web.title', lang)}
+        subtitle={t('web.subtitle', lang)}
         actions={
           <TickerInput
             onAdd={(symbol, resolution) =>

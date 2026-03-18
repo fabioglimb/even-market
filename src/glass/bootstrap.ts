@@ -13,6 +13,8 @@ import { getDisplayData } from '../state/selectors';
 import { mapEvenHubEvent } from '../input/action-map';
 import { renderToCanvasDirect, drawCandlesInto, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
+import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
+import type { MarketLanguage } from '../utils/i18n';
 import { Poller } from '../data/poller';
 
 type PageLayout = PageMode;
@@ -242,14 +244,16 @@ function padL(s: string, n: number): string {
 
 /** Home screen text (below chart image tiles): EvenMarket + Watchlist/Settings buttons. */
 function buildHomeText(state: AppState): string {
+  const lang = state.settings.language;
   const hi = state.highlightedIndex;
   const wlCursor = hi === 0 ? '\u25B6 ' : '  ';
   const setCursor = hi === 1 ? '\u25B6 ' : '  ';
-  return `\n${wlCursor}Watchlist\n${setCursor}Settings`;
+  return `\n${wlCursor}${t('home.watchlist', lang)}\n${setCursor}${t('home.settings', lang)}`;
 }
 
 /** Build 3 column strings for the watchlist (symbol, price, percent). */
 function buildWatchlistColumns(state: AppState): { sym: string; price: string; pct: string } {
+  const lang = state.settings.language;
   const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   const hi = state.highlightedIndex;
   const totalItems = state.settings.graphics.length;
@@ -265,7 +269,7 @@ function buildWatchlistColumns(state: AppState): { sym: string; price: string; p
 
   // Column 1: title + cursor + symbol
   const symLines: string[] = [];
-  symLines.push('SYMBOL');
+  symLines.push(t('watchlist.symbol', lang));
   symLines.push(winStart > 0 ? '  \u25B2' : '');
   for (let i = winStart; i < winEnd; i++) {
     const g = state.settings.graphics[i]!;
@@ -278,7 +282,7 @@ function buildWatchlistColumns(state: AppState): { sym: string; price: string; p
 
   // Column 2: title + price
   const priceLines: string[] = [];
-  priceLines.push('PRICE');
+  priceLines.push(t('watchlist.price', lang));
   priceLines.push(''); // up arrow row
   for (let i = winStart; i < winEnd; i++) {
     const g = state.settings.graphics[i]!;
@@ -290,7 +294,7 @@ function buildWatchlistColumns(state: AppState): { sym: string; price: string; p
 
   // Column 3: title + percent
   const pctLines: string[] = [];
-  pctLines.push('CHANGE');
+  pctLines.push(t('watchlist.change', lang));
   pctLines.push(''); // up arrow row
   for (let i = winStart; i < winEnd; i++) {
     const g = state.settings.graphics[i]!;
@@ -322,19 +326,20 @@ function buildFullText(state: AppState): string {
     }
 
     case 'settings': {
+      const lang = state.settings.language;
       const s = state.settings;
       const hi = state.highlightedIndex;
       const editing = state.settingsEditActive;
       const lines: string[] = [];
 
-      lines.push(`SETTINGS${' '.repeat(19)}${time}`);
+      lines.push(`${t('settings.title', lang)}${' '.repeat(19)}${time}`);
       lines.push('');
 
       // Refresh row
       const refreshLabel = `${s.refreshInterval}s`;
-      const refreshActive = editing && hi === 0 ? 'Refresh' : null;
+      const refreshActive = editing && hi === 0 ? t('settings.refresh', lang) : null;
       const refreshBar = buildActionBar(
-        ['Refresh'],
+        [t('settings.refresh', lang)],
         hi === 0 ? 0 : -1,
         refreshActive,
         state.candleFlashPhase,
@@ -346,10 +351,10 @@ function buildFullText(state: AppState): string {
       }
 
       // Chart type row
-      const chartLabel = s.chartType === 'sparkline' ? 'Sparkline' : 'Candles';
-      const chartActive = editing && hi === 1 ? 'Chart' : null;
+      const chartLabel = s.chartType === 'sparkline' ? t('settings.sparkline', lang) : t('settings.candles', lang);
+      const chartActive = editing && hi === 1 ? t('settings.chart', lang) : null;
       const chartBar = buildActionBar(
-        ['Chart'],
+        [t('settings.chart', lang)],
         hi === 1 ? 0 : -1,
         chartActive,
         state.candleFlashPhase,
@@ -358,6 +363,21 @@ function buildFullText(state: AppState): string {
         lines.push(`${chartBar}    \u25C0 [${chartLabel}] \u25B6`);
       } else {
         lines.push(`${chartBar}    ${chartLabel}`);
+      }
+
+      // Language row
+      const langName = getLanguageName(s.language);
+      const langActive = editing && hi === 2 ? t('settings.language', lang) : null;
+      const langBar = buildActionBar(
+        [t('settings.language', lang)],
+        hi === 2 ? 0 : -1,
+        langActive,
+        state.candleFlashPhase,
+      );
+      if (editing && hi === 2) {
+        lines.push(`${langBar}    \u25C0 [${langName}] \u25B6`);
+      } else {
+        lines.push(`${langBar}    ${langName}`);
       }
 
       return lines.join('\n');
@@ -370,16 +390,17 @@ function buildFullText(state: AppState): string {
 
 /** Text below chart: header + scrollable candle table. */
 function buildChartTopText(state: AppState): string {
+  const lang = state.settings.language;
   const g = state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
-  if (!g) return 'No graphic';
+  if (!g) return t('chart.noGraphic', lang);
   const q = state.quotes[g.symbol];
-  if (!q) return `${g.symbol}  Loading...`;
+  if (!q) return `${g.symbol}  ${t('chart.loading', lang)}`;
 
   const res = formatResolutionShort(g.resolution);
   const inBtnMode = !state.candleNavActive && !state.tfNavActive;
-  const activeLabel = state.tfNavActive ? res : state.candleNavActive ? 'NAV' : null;
+  const activeLabel = state.tfNavActive ? res : state.candleNavActive ? t('chart.nav', lang) : null;
   const selectedIdx = inBtnMode ? state.highlightedIndex : 0;
-  const btnBar = buildActionBar([res, 'NAV'], selectedIdx, activeLabel, state.candleFlashPhase);
+  const btnBar = buildActionBar([res, t('chart.nav', lang)], selectedIdx, activeLabel, state.candleFlashPhase);
 
   const lines: string[] = [];
 
@@ -416,7 +437,7 @@ function buildChartTopText(state: AppState): string {
       }
     }
   } else {
-    lines.push('No candle data');
+    lines.push(t('chart.noData', lang));
   }
 
   return lines.join('\n');
