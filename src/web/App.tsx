@@ -36,13 +36,17 @@ function App() {
     }
   }
 
+  // These screens have their own AppShell with NavHeader
+  if (webScreen === 'settings') return <SettingsScreen />;
+  if (webScreen === 'stock-detail') return <ChartScreen />;
+
   return (
     <AppShell
       header={
-        <NavBar items={navItems} activeId={webScreen === 'stock-detail' ? 'watchlist' : webScreen} onNavigate={handleNavigate} />
+        <NavBar items={navItems} activeId={webScreen} onNavigate={handleNavigate} />
       }
     >
-      <div className="px-3 pb-8">
+      <div className="px-3 pt-4 pb-8">
         {renderScreen(webScreen)}
       </div>
     </AppShell>

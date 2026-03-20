@@ -3,7 +3,8 @@ import type { Candle, ChartResolution } from '../../state/types';
 import { formatPrice, formatPercent } from '../../utils/format';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { usePoller } from '../contexts/poller-context';
-import { Page, Button, Badge, Card, SegmentedControl } from 'even-toolkit/web';
+import { AppShell, NavHeader, Button, Badge, Card, SegmentedControl, EmptyState } from 'even-toolkit/web';
+import { IcChevronBack } from 'even-toolkit/web/icons/svg-icons';
 import { CandlestickChart } from '../components/shared/candlestick-chart';
 import { ChartInfo } from '../components/shared/chart-info';
 
@@ -41,9 +42,9 @@ function ChartScreen() {
 
   if (!graphic) {
     return (
-      <Page>
-        <p className="text-text-dim">No graphic selected</p>
-      </Page>
+      <AppShell header={<NavHeader title="Chart" left={<Button variant="ghost" size="icon" onClick={() => dispatch({ type: 'GO_BACK' })}><IcChevronBack width={20} height={20} /></Button>} />}>
+        <EmptyState title="No graphic selected" />
+      </AppShell>
     );
   }
 
@@ -51,36 +52,29 @@ function ChartScreen() {
   const isUp = quote ? quote.changePercent >= 0 : true;
 
   return (
-    <Page>
-      {/* Header — single row: back icon, symbol, price, badge */}
-      <div className="mb-4 mt-4">
-        <div className="flex items-center gap-3 mb-3">
-          <button
-            type="button"
-            onClick={() => dispatch({ type: 'GO_BACK' })}
-            className="shrink-0 w-9 h-9 flex items-center justify-center rounded-[6px] cursor-pointer text-text hover:bg-surface-light transition-colors"
-          >
-            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-          </button>
-          <span className="text-[17px] tracking-[-0.17px] font-normal">{sym}</span>
-          <div className="flex items-center gap-2 ml-auto">
-            {quote ? (
-              <>
-                <span className="text-[17px] tracking-[-0.17px] font-mono font-normal tabular-nums">
-                  ${formatPrice(quote.price)}
-                </span>
-                <Badge variant={isUp ? 'positive' : 'negative'}>
-                  {formatPercent(quote.changePercent)}
-                </Badge>
-              </>
-            ) : (
-              <span className="text-text-dim text-[13px]">Loading...</span>
-            )}
+    <AppShell
+      header={
+        <NavHeader
+          title={sym}
+          left={
+            <Button variant="ghost" size="icon" onClick={() => dispatch({ type: 'GO_BACK' })}>
+              <IcChevronBack width={20} height={20} />
+            </Button>
+          }
+        />
+      }
+    >
+      <div className="px-3 pt-3 pb-8">
+        {quote && (
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="text-[17px] tracking-[-0.17px] font-mono tabular-nums">
+              ${formatPrice(quote.price)}
+            </span>
+            <Badge variant={isUp ? 'positive' : 'negative'}>
+              {formatPercent(quote.changePercent)}
+            </Badge>
           </div>
-        </div>
-
+        )}
         <SegmentedControl
           options={RES_OPTIONS}
           value={graphic.resolution}
@@ -91,20 +85,20 @@ function ChartScreen() {
               resolution: res as ChartResolution,
             })
           }
+          className="mb-3"
         />
-      </div>
 
-      {/* Chart */}
-      <Card padding="none" className="overflow-hidden">
-        <CandlestickChart
-          candles={candles}
-          resolution={graphic.resolution}
-          onHover={handleHover}
-          onLoadMore={handleLoadMore}
-        />
-      </Card>
-      <ChartInfo candle={hoveredCandle} resolution={graphic.resolution} />
-    </Page>
+        <Card padding="none" className="overflow-hidden">
+          <CandlestickChart
+            candles={candles}
+            resolution={graphic.resolution}
+            onHover={handleHover}
+            onLoadMore={handleLoadMore}
+          />
+        </Card>
+        <ChartInfo candle={hoveredCandle} resolution={graphic.resolution} />
+      </div>
+    </AppShell>
   );
 }
 
