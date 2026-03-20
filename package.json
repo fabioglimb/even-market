@@ -16,7 +16,7 @@
     "@jappyjan/even-better-sdk": "^0.0.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "even-toolkit": "file:../even-toolkit",
+    "even-toolkit": "^1.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router": "^7.13.1",
