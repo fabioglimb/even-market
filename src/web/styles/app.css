@@ -3,7 +3,7 @@
 @import "even-toolkit/web/typography.css";
 @import "even-toolkit/web/utilities.css";
 @source "../../";
-@source "../../node_modules/even-toolkit";
+@source "../../../node_modules/even-toolkit";
 
 @theme {
   --color-bg: var(--color-bg);
