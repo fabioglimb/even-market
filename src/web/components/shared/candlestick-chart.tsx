@@ -202,7 +202,7 @@ function CandlestickChart({ candles, resolution, onHover, onLoadMore }: Candlest
       ref={canvasRef}
       width={CHART_W}
       height={CHART_H}
-      className="bg-surface rounded-md block w-full cursor-grab active:cursor-grabbing touch-none"
+      className="bg-surface rounded-[6px] block w-full cursor-grab active:cursor-grabbing touch-none"
       style={{ maxWidth: CHART_W + 'px' }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
@@ -219,8 +219,13 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, CHART_W, CHART_H);
 
+  const style = getComputedStyle(document.documentElement);
+  const colorDim = style.getPropertyValue('--color-text-dim').trim() || '#7B7B7B';
+  const colorGrid = style.getPropertyValue('--color-border').trim() || '#E4E4E4';
+  const colorLabel = style.getPropertyValue('--color-text-dim').trim() || '#7B7B7B';
+
   if (candles.length === 0) {
-    ctx.fillStyle = '#8a7f72';
+    ctx.fillStyle = colorDim;
     ctx.font = '16px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('No chart data', CHART_W / 2, CHART_H / 2);
@@ -243,14 +248,13 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
     return PADDING.top + priceH - ((p - allLow) / priceRange) * priceH;
   }
 
-  const style = getComputedStyle(document.documentElement);
-  const colorUp = style.getPropertyValue('--color-positive').trim() || '#26a69a';
-  const colorDown = style.getPropertyValue('--color-negative').trim() || '#ef5350';
-  const colorUpAlpha = style.getPropertyValue('--color-positive-alpha').trim() || 'rgba(38,166,154,0.3)';
-  const colorDownAlpha = style.getPropertyValue('--color-negative-alpha').trim() || 'rgba(239,83,80,0.3)';
+  const colorUp = style.getPropertyValue('--color-positive').trim() || '#4BB956';
+  const colorDown = style.getPropertyValue('--color-negative').trim() || '#FF453A';
+  const colorUpAlpha = style.getPropertyValue('--color-positive-alpha').trim() || 'rgba(75,185,86,0.15)';
+  const colorDownAlpha = style.getPropertyValue('--color-negative-alpha').trim() || 'rgba(255,69,58,0.15)';
 
   // Grid lines
-  ctx.strokeStyle = '#2a2519';
+  ctx.strokeStyle = colorGrid;
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = PADDING.top + (priceH * i) / 4;
@@ -260,7 +264,7 @@ function drawCandles(canvas: HTMLCanvasElement, candles: Candle[], resolution: C
     ctx.stroke();
 
     const price = allHigh - (priceRange * i) / 4;
-    ctx.fillStyle = '#6b6054';
+    ctx.fillStyle = colorLabel;
     ctx.font = '11px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(formatPrice(price), CHART_W - 5, y + 4);

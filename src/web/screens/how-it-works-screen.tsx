@@ -1,13 +1,12 @@
-import { Page } from '../components/shared/page';
-import { ScreenHeader } from '../components/shared/screen-header';
+import { Page, ScreenHeader, Kbd } from 'even-toolkit/web';
 import { HowSection } from '../components/shared/how-section';
-import { Kbd } from '../components/ui/kbd';
 
 function HowItWorksScreen() {
   return (
     <Page className="max-w-[640px]">
-      <ScreenHeader title="How It Works" />
+      <ScreenHeader title="How It Works" subtitle="Learn how to use EvenMarket on your glasses and web dashboard" />
 
+      <div className="space-y-3">
       <HowSection title="Graphics">
         <p>
           Each item in your watchlist is a <strong>graphic</strong> — a symbol paired with a timeframe.
@@ -70,7 +69,7 @@ function HowItWorksScreen() {
       </HowSection>
 
       <HowSection title="Keyboard Shortcuts">
-        <table className="border-collapse text-sm">
+        <table className="border-collapse text-[13px] tracking-[-0.13px]">
           <tbody>
             <tr>
               <td className="py-1 pr-4 text-text-dim">
@@ -105,6 +104,7 @@ function HowItWorksScreen() {
           </tbody>
         </table>
       </HowSection>
+      </div>
     </Page>
   );
 }

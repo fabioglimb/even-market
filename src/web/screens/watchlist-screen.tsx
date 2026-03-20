@@ -2,12 +2,9 @@ import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
 import { useSettings } from '../hooks/use-settings';
 import { useDispatch } from '../hooks/use-store';
-import { Page } from '../components/shared/page';
-import { ScreenHeader } from '../components/shared/screen-header';
+import { Page, ScreenHeader, ListItem, Badge } from 'even-toolkit/web';
 import { TickerInput } from '../components/shared/ticker-input';
-import { Table, TableHeader, TableBody, TableHead, TableRow } from '../components/ui/table';
-import { QuoteRow } from '../components/shared/quote-row';
-import { QuoteCard } from '../components/shared/quote-card';
+import { formatPrice, formatPercent, formatResolutionShort } from '../../utils/format';
 import { t } from '../../utils/i18n';
 
 function WatchlistScreen() {
@@ -22,56 +19,56 @@ function WatchlistScreen() {
       <ScreenHeader
         title={t('web.title', lang)}
         subtitle={t('web.subtitle', lang)}
-        actions={
-          <TickerInput
-            onAdd={(symbol, resolution) =>
-              dispatch({ type: 'GRAPHIC_ADD', symbol, resolution })
-            }
-          />
+      />
+
+      <TickerInput
+        onAdd={(symbol, resolution) =>
+          dispatch({ type: 'GRAPHIC_ADD', symbol, resolution })
         }
       />
 
-      {/* Mobile: card stack */}
-      <div className="flex flex-col gap-2 sm:hidden">
-        {graphics.map((graphic) => (
-          <QuoteCard
-            key={graphic.id}
-            graphic={graphic}
-            quote={quotes[graphic.symbol]}
-            onClick={() => dispatch({ type: 'SELECT_GRAPHIC', graphicId: graphic.id })}
-            onRemove={() => dispatch({ type: 'GRAPHIC_REMOVE', graphicId: graphic.id })}
-          />
-        ))}
-      </div>
-
-      {/* Desktop: table */}
-      <div className="hidden sm:block">
-        <Table>
-          <TableHeader>
-            <TableRow className="cursor-default hover:bg-transparent">
-              <TableHead className="w-8" />
-              <TableHead>Symbol</TableHead>
-              <TableHead>TF</TableHead>
-              <TableHead className="text-right">Price</TableHead>
-              <TableHead className="text-right">Change</TableHead>
-              <TableHead className="text-right">%Change</TableHead>
-              <TableHead className="text-right">High</TableHead>
-              <TableHead className="text-right">Low</TableHead>
-              <TableHead className="text-right">Volume</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {graphics.map((graphic) => (
-              <QuoteRow
-                key={graphic.id}
-                graphic={graphic}
-                quote={quotes[graphic.symbol]}
-                onClick={() => dispatch({ type: 'SELECT_GRAPHIC', graphicId: graphic.id })}
-                onRemove={() => dispatch({ type: 'GRAPHIC_REMOVE', graphicId: graphic.id })}
-              />
-            ))}
-          </TableBody>
-        </Table>
+      {/* Watchlist — swipe to delete */}
+      <div className="mt-3 rounded-[6px] overflow-hidden bg-surface">
+        {/* Header */}
+        <div className="flex items-center px-4 py-3 bg-surface-light/50 text-[13px] tracking-[-0.13px] text-text-dim">
+          <span className="flex-1">Symbol</span>
+          <span className="w-12 text-center">TF</span>
+          <span className="w-20 text-right">Price</span>
+          <span className="w-20 text-right">Change</span>
+        </div>
+        {/* Rows */}
+        {graphics.map((graphic) => {
+          const quote = quotes[graphic.symbol];
+          const isUp = quote ? quote.changePercent >= 0 : true;
+          return (
+            <ListItem
+              key={graphic.id}
+              title={graphic.symbol}
+              onPress={() => dispatch({ type: 'SELECT_GRAPHIC', graphicId: graphic.id })}
+              onDelete={() => dispatch({ type: 'GRAPHIC_REMOVE', graphicId: graphic.id })}
+              trailing={
+                <div className="flex items-center">
+                  <span className="w-12 text-center text-[13px] tracking-[-0.13px] text-text-dim">
+                    {formatResolutionShort(graphic.resolution)}
+                  </span>
+                  <span className="w-20 text-right font-mono tabular-nums text-[13px] tracking-[-0.13px]">
+                    {quote ? formatPrice(quote.price) : '--'}
+                  </span>
+                  <span className="w-20 text-right">
+                    <Badge variant={isUp ? 'positive' : 'negative'}>
+                      {quote ? formatPercent(quote.changePercent) : '--'}
+                    </Badge>
+                  </span>
+                </div>
+              }
+            />
+          );
+        })}
+        {graphics.length === 0 && (
+          <div className="px-4 py-6 text-center text-[13px] tracking-[-0.13px] text-text-dim">
+            No stocks added. Use the input above to add symbols.
+          </div>
+        )}
       </div>
     </Page>
   );

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { Screen } from '../state/types';
 import { useSelector, useDispatch } from './hooks/use-store';
-import { NavBar } from './components/shared/nav-bar';
+import { NavBar, AppShell } from 'even-toolkit/web';
+import type { NavItem } from 'even-toolkit/web';
 import { WatchlistScreen } from './screens/watchlist-screen';
 import { ChartScreen } from './screens/chart-screen';
 import { SettingsScreen } from './screens/settings-screen';
@@ -9,14 +10,18 @@ import { HowItWorksScreen } from './screens/how-it-works-screen';
 
 type WebScreen = Screen | 'how-it-works';
 
+const navItems: NavItem[] = [
+  { id: 'watchlist', label: 'Watchlist' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'how-it-works', label: 'How It Works' },
+];
+
 function App() {
   const dispatch = useDispatch();
   const storeScreen = useSelector((s) => s.screen);
 
-  // Local screen state that also tracks 'how-it-works' (web-only)
   const [webScreen, setWebScreen] = useState<WebScreen>(storeScreen);
 
-  // Sync from store screen changes (glasses/keyboard navigation)
   useEffect(() => {
     setWebScreen(storeScreen);
   }, [storeScreen]);
@@ -32,12 +37,15 @@ function App() {
   }
 
   return (
-    <>
-      <NavBar activeScreen={webScreen} onNavigate={handleNavigate} />
-      <div className="min-h-[400px]">
+    <AppShell
+      header={
+        <NavBar items={navItems} activeId={webScreen === 'stock-detail' ? 'watchlist' : webScreen} onNavigate={handleNavigate} />
+      }
+    >
+      <div className="px-3 pb-8">
         {renderScreen(webScreen)}
       </div>
-    </>
+    </AppShell>
   );
 }
 

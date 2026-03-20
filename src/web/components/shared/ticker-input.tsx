@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import type { ChartResolution } from '../../../state/types';
-import { Input } from '../ui/input';
-import { Select } from '../ui/select';
-import { Button } from '../ui/button';
+import { Input, Select, Button, InputGroup } from 'even-toolkit/web';
 
 const RES_OPTIONS = [
   { value: '1', label: '1 min' },
@@ -31,26 +29,24 @@ function TickerInput({ onAdd }: TickerInputProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-3">
       <Input
         placeholder="Symbol (e.g. AMZN)"
         maxLength={10}
         value={symbol}
-        className="w-40"
+        className="flex-1"
         onChange={(e) => setSymbol(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
       />
-      <div className="flex items-center">
+      <InputGroup>
         <Select
           options={RES_OPTIONS}
           value={resolution}
           onValueChange={(v) => setResolution(v as ChartResolution)}
-          className="w-24 rounded-r-none border-r-0"
+          className="w-24"
         />
-        <Button onClick={handleAdd} className="rounded-l-none">
-          Add
-        </Button>
-      </div>
+        <Button size="sm" onClick={handleAdd}>Add</Button>
+      </InputGroup>
     </div>
   );
 }
