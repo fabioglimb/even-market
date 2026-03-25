@@ -406,35 +406,28 @@ function buildChartTopText(state: AppState): string {
 
   // Row 1: symbol, price, change, buttons
   lines.push(`${g.symbol} $${formatPrice(q.price)} ${formatPercent(q.changePercent)}  ${btnBar}`);
+  lines.push('\u2500'.repeat(28));
 
-  // Candle list — each candle takes 2 lines (OHLC + Volume/Date)
+  // Single candle display with ▲/▼ scroll indicators
   const candles = state.candles;
   if (candles.length > 0) {
-    const MAX_CANDLES = 2; // 2 candles x 2 lines = 4 lines
     const ci = state.highlightedCandleIndex;
-    const reversed = [...candles].reverse();
-    const hiReversed = ci >= 0 ? candles.length - 1 - ci : -1;
+    const idx = ci >= 0 ? ci : candles.length - 1;
+    const cd = candles[Math.max(0, Math.min(idx, candles.length - 1))]!;
 
-    let winStart = 0;
-    if (reversed.length > MAX_CANDLES && hiReversed >= 0) {
-      winStart = Math.max(0, Math.min(reversed.length - MAX_CANDLES, hiReversed - Math.floor(MAX_CANDLES / 2)));
+    // ▲ if there are newer candles above
+    if (idx < candles.length - 1) {
+      lines.push('\u25B2');
     }
-    const winEnd = Math.min(reversed.length, winStart + MAX_CANDLES);
 
-    for (let i = winStart; i < winEnd; i++) {
-      const cd = reversed[i]!;
-      const selected = i === hiReversed;
-      const row1 = `O:${formatPrice(cd.open)}  H:${formatPrice(cd.high)}  L:${formatPrice(cd.low)}  C:${formatPrice(cd.close)}`;
-      const row2 = `V:${formatVolume(cd.volume)}  ${formatCandleTime(cd.time, g.resolution)}`;
-      if (selected) {
-        lines.push('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
-        lines.push(row1);
-        lines.push(row2);
-        lines.push('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
-      } else {
-        lines.push(row1);
-        lines.push(row2);
-      }
+    const row1 = `O:${formatPrice(cd.open)}  H:${formatPrice(cd.high)}  L:${formatPrice(cd.low)}  C:${formatPrice(cd.close)}`;
+    const row2 = `V:${formatVolume(cd.volume)}  ${formatCandleTime(cd.time, g.resolution)}`;
+    lines.push(row1);
+    lines.push(row2);
+
+    // ▼ if there are older candles below
+    if (idx > 0) {
+      lines.push('\u25BC');
     }
   } else {
     lines.push(t('chart.noData', lang));

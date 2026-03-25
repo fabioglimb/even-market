@@ -1,4 +1,5 @@
 import type { AppState } from './types';
+import { glassHeader } from 'even-toolkit/types';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
 
 export type LineStyle = 'normal' | 'inverted' | 'separator' | 'meta';
@@ -61,8 +62,7 @@ function getWatchlistDisplay(state: AppState): DisplayData {
   const gap = 30 - 7 - time.length;
   const leftGap = Math.floor(gap / 2);
   const rightGap = gap - leftGap;
-  lines.push(line(`MARKETS${' '.repeat(leftGap)}${time}${' '.repeat(rightGap)}`, 'normal'));
-  lines.push(line('', 'separator'));
+  lines.push(...glassHeader(`MARKETS${' '.repeat(leftGap)}${time}${' '.repeat(rightGap)}`));
 
   for (let i = 0; i < state.settings.graphics.length; i++) {
     const graphic = state.settings.graphics[i]!;
@@ -113,8 +113,7 @@ function getStockDetailDisplay(state: AppState): DisplayData {
 
   if (quote) {
     const pct = formatPercent(quote.changePercent);
-    lines.push(line(`${sym} ${resShort}  $${formatPrice(quote.price)}  ${pct}`, 'normal'));
-    lines.push(line('', 'separator'));
+    lines.push(...glassHeader(`${sym} ${resShort}  $${formatPrice(quote.price)}  ${pct}`));
 
     if (candle) {
       const dateStr = formatCandleTime(candle.time, graphic.resolution);
@@ -128,8 +127,7 @@ function getStockDetailDisplay(state: AppState): DisplayData {
       lines.push(line(`H: ${padLeft(formatPrice(quote.high), 8)}  L: ${padLeft(formatPrice(quote.low), 8)}  ${dateStr}`, 'meta'));
     }
   } else {
-    lines.push(line(`${sym} ${resShort}  Loading...`, 'normal'));
-    lines.push(line('', 'separator'));
+    lines.push(...glassHeader(`${sym} ${resShort}  Loading...`));
     lines.push(line('Waiting for data...', 'meta'));
   }
 
@@ -152,8 +150,7 @@ function getSettingsDisplay(state: AppState): DisplayData {
   const lines: DisplayLine[] = [];
   const s = state.settings;
 
-  lines.push(line('SETTINGS', 'normal'));
-  lines.push(line('', 'separator'));
+  lines.push(...glassHeader('SETTINGS'));
 
   const items = [
     `Refresh: ${s.refreshInterval}s`,
