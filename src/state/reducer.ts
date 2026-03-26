@@ -1,6 +1,7 @@
 import type { AppState, ChartResolution } from './types';
 import { initialState, makeGraphicId } from './types';
 import type { Action } from './actions';
+import { wrapIndex } from 'even-toolkit/glass-nav';
 import { MARKET_LANGUAGES } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
 
@@ -74,18 +75,11 @@ export function reduce(state: AppState, action: Action): AppState {
       const delta = action.direction === 'down' ? 1 : -1;
       if (state.screen === 'home') {
         // Home: 0=Watchlist, 1=Settings — wrap
-        let next = state.highlightedIndex + delta;
-        if (next < 0) next = 1;
-        else if (next > 1) next = 0;
-        return { ...state, highlightedIndex: next };
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', 2) };
       }
       if (state.screen === 'watchlist') {
-        // Wrap within graphics only
-        const maxIdx = state.settings.graphics.length - 1;
-        let next = state.highlightedIndex + delta;
-        if (next < 0) next = maxIdx;
-        else if (next > maxIdx) next = 0;
-        return { ...state, highlightedIndex: next };
+        // Wrap within graphics
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.settings.graphics.length) };
       }
       const next = Math.max(0, Math.min(maxIndex, state.highlightedIndex + delta));
       return { ...state, highlightedIndex: next };

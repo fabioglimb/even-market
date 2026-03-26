@@ -5,6 +5,7 @@ import { encodeTilesBatch, resetTileCache } from 'even-toolkit/png-utils';
 import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from 'even-toolkit/layout';
 import { activateKeepAlive } from 'even-toolkit/keep-alive';
 import { buildActionBar } from 'even-toolkit/action-bar';
+import { slidingWindowStart } from 'even-toolkit/glass-display-builders';
 import { marketSplash } from './splash';
 import { createStore } from '../state/store';
 import type { AppState, GraphicEntry, ChartResolution } from '../state/types';
@@ -261,10 +262,7 @@ function buildWatchlistColumns(state: AppState): { sym: string; price: string; p
   const MAX_VISIBLE = 5;
 
   // Sliding window
-  let winStart = 0;
-  if (totalItems > MAX_VISIBLE) {
-    winStart = Math.max(0, Math.min(totalItems - MAX_VISIBLE, hi - Math.floor(MAX_VISIBLE / 2)));
-  }
+  const winStart = slidingWindowStart(hi, totalItems, MAX_VISIBLE);
   const winEnd = Math.min(totalItems, winStart + MAX_VISIBLE);
 
   // Column 1: title + cursor + symbol
