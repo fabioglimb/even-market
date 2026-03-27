@@ -2,7 +2,7 @@ import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
 import { useSettings } from '../hooks/use-settings';
 import { useDispatch } from '../hooks/use-store';
-import { Page, ScreenHeader, ListItem, Badge } from 'even-toolkit/web';
+import { ListItem, Badge } from 'even-toolkit/web';
 import { TickerInput } from '../components/shared/ticker-input';
 import { formatPrice, formatPercent, formatResolutionShort } from '../../utils/format';
 import { t } from '../../utils/i18n';
@@ -15,12 +15,7 @@ function WatchlistScreen() {
   const lang = settings.language;
 
   return (
-    <Page>
-      <ScreenHeader
-        title={t('web.title', lang)}
-        subtitle={t('web.subtitle', lang)}
-      />
-
+    <>
       <TickerInput
         onAdd={(symbol, resolution) =>
           dispatch({ type: 'GRAPHIC_ADD', symbol, resolution })
@@ -70,7 +65,7 @@ function WatchlistScreen() {
           </div>
         )}
       </div>
-    </Page>
+    </>
   );
 }
 
