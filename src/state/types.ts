@@ -79,7 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const initialState: AppState = {
-  screen: 'splash',
+  screen: 'home',
   quotes: {},
   candles: [],
   candlesCacheKey: null,

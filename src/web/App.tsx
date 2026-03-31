@@ -25,11 +25,11 @@ function getScreenTitle(screen: WebScreen): string {
   switch (screen) {
     case 'splash':
     case 'home':
-    case 'watchlist': return 'EvenMarket';
+    case 'watchlist': return 'ER Market';
     case 'stock-detail': return 'Stock';
     case 'settings': return 'Settings';
     case 'how-it-works': return 'How It Works';
-    default: return 'EvenMarket';
+    default: return 'ER Market';
   }
 }
 
@@ -75,7 +75,7 @@ function App() {
       activeId={webScreen}
       items={MENU_ITEMS}
       bottomItems={BOTTOM_ITEMS}
-      title="EvenMarket"
+      title="ER Market"
     >
       <div className="flex flex-col h-full">
         <div className="shrink-0">

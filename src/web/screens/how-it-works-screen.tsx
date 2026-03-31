@@ -4,7 +4,7 @@ import { HowSection } from '../components/shared/how-section';
 function HowItWorksScreen() {
   return (
     <Page className="max-w-[640px]">
-      <ScreenHeader title="How It Works" subtitle="Learn how to use EvenMarket on your glasses and web dashboard" />
+      <ScreenHeader title="How It Works" subtitle="Learn how to use ER Market on your glasses and web dashboard" />
 
       <div className="space-y-3">
       <HowSection title="Graphics">

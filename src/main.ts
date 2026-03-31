@@ -1,5 +1,5 @@
 /**
- * Main entry point for EvenMarket app.
+ * Main entry point for ER Market app.
  * Boots the web UI (visible in browser) AND the glasses
  * canvas renderer (hidden, pushes to glasses via SDK).
  */

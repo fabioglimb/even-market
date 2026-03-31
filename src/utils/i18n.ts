@@ -84,8 +84,8 @@ const translations: Record<string, Record<MarketLanguage, string>> = {
 
   // Web UI
   'web.title': {
-    en: 'EvenMarket', it: 'EvenMarket', es: 'EvenMarket', fr: 'EvenMarket', de: 'EvenMarket',
-    pt: 'EvenMarket', ja: 'EvenMarket', zh: 'EvenMarket', ko: 'EvenMarket', ru: 'EvenMarket',
+    en: 'ER Market', it: 'ER Market', es: 'ER Market', fr: 'ER Market', de: 'ER Market',
+    pt: 'ER Market', ja: 'ER Market', zh: 'ER Market', ko: 'ER Market', ru: 'ER Market',
   },
   'web.subtitle': {
     en: 'Real-time market data on your glasses',

@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "pack": "npm run build && npx @evenrealities/evenhub-cli pack app.json dist",
+    "pack": "VITE_EHPK=1 npm run build && npx @evenrealities/evenhub-cli pack app.json dist",
     "pack:check": "npx @evenrealities/evenhub-cli pack app.json dist --check",
     "qr": "npx @evenrealities/evenhub-cli qr --port 5173 --path /"
   },
@@ -16,7 +16,7 @@
     "@jappyjan/even-better-sdk": "^0.0.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "even-toolkit": "^1.4.2",
+    "even-toolkit": "^1.5.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-is": "^19.2.4",

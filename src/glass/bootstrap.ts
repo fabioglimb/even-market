@@ -243,7 +243,7 @@ function padL(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
 }
 
-/** Home screen text (below chart image tiles): EvenMarket + Watchlist/Settings buttons. */
+/** Home screen text (below chart image tiles): ER Market + Watchlist/Settings buttons. */
 function buildHomeText(state: AppState): string {
   const lang = state.settings.language;
   const hi = state.highlightedIndex;
@@ -382,7 +382,7 @@ function buildFullText(state: AppState): string {
     }
 
     default:
-      return `${time}\nEvenMarket`;
+      return `${time}\nER Market`;
   }
 }
 
@@ -551,21 +551,19 @@ export async function initGlassesRenderer(): Promise<void> {
     hub = sdkHub;
     store.dispatch({ type: 'CONNECTION_STATUS', status: 'connected' });
 
-    // Set up initial text page (required before chart layout switch)
-    await hub.setupTextPage();
-
-    // Show splash screen
-    await marketSplash.show(hub);
+    // Set up home layout with icon tile BEFORE dispatching (avoids race with subscriber)
+    const tiles = marketSplash.getTiles();
+    const t = tiles[0];
+    const imageTiles = t ? [{ id: t.id, name: t.name, x: t.x, y: t.y, w: t.w, h: t.h }] : undefined;
+    await hub.showHomePage(buildHomeText(store.getState()), imageTiles);
+    if (t) await hub.sendImage(t.id, t.name, t.bytes);
 
     hub.onEvent((event) => {
       const action = mapEvenHubEvent(event, store.getState());
       if (action) store.dispatch(action);
     });
 
-    // Wait for minimum splash time, clear "Loading..." tile with black, go to home.
-    // No layout rebuild — same containers, just content swap. Logo stays.
-    await marketSplash.waitMinTime();
-    await marketSplash.clearExtras(hub);
+    // Now dispatch — subscriber won't rebuild since layout is already 'home'
     store.dispatch({ type: 'APP_INIT' });
   }).catch(() => {});
 
