@@ -5,18 +5,22 @@ import { encodeTilesBatch, resetTileCache } from 'even-toolkit/png-utils';
 import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from 'even-toolkit/layout';
 import { activateKeepAlive } from 'even-toolkit/keep-alive';
 import { buildActionBar } from 'even-toolkit/action-bar';
-import { slidingWindowStart } from 'even-toolkit/glass-display-builders';
+import { buildScrollableContent, buildScrollableList, DEFAULT_CONTENT_SLOTS, slidingWindowStart } from 'even-toolkit/glass-display-builders';
+import { truncate } from 'even-toolkit/text-utils';
+import type { DisplayData } from 'even-toolkit/types';
 import { marketSplash } from './splash';
 import { createStore } from '../state/store';
-import type { AppState, GraphicEntry, ChartResolution } from '../state/types';
+import type { AppState, GraphicEntry, ChartResolution, PriceAlert } from '../state/types';
 import { makeGraphicId } from '../state/types';
 import { getDisplayData } from '../state/selectors';
+import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount, isUnreadTriggeredAlert, sortAlertsForDisplay } from '../state/alert-utils';
 import { mapEvenHubEvent } from '../input/action-map';
 import { renderToCanvasDirect, drawCandlesInto, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
 import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
 import { Poller } from '../data/poller';
+import { fetchNewsArticleContent } from '../data/news';
 import { storageSet, storageGet } from 'even-toolkit/storage';
 
 type PageLayout = PageMode;
@@ -38,6 +42,26 @@ let hub: EvenHubBridge | null = null;
 let store: ReturnType<typeof createStore>;
 let poller: Poller;
 let flashTimer: ReturnType<typeof setInterval> | null = null;
+let glassAlertToastActive = false;
+let glassAlertToastTimer: ReturnType<typeof setTimeout> | null = null;
+let glassAlertPulseTimer: ReturnType<typeof setInterval> | null = null;
+const GLASSES_NEWS_WIDTH = 44;
+const GLASS_ALERT_WIDTH = 28;
+const GLASS_ALERT_PULSE_MS = 420;
+const GLASS_ALERT_DURATION_MS = 3800;
+
+function buildWideHeader(title: string, time: string, width = GLASSES_NEWS_WIDTH): string {
+  const gap = Math.max(1, width - title.length - time.length);
+  return `${title}${' '.repeat(gap)}${time}`;
+}
+
+function renderDisplayData(data: DisplayData): string {
+  return data.lines.map((line) => {
+    if (line.style === 'separator') return '\u2500'.repeat(28);
+    if (line.inverted) return `\u25B6 ${line.text}`;
+    return `  ${line.text}`;
+  }).join('\n');
+}
 
 // ── Layout management ──
 
@@ -45,7 +69,27 @@ function getDesiredLayout(state: AppState): PageLayout {
   if (state.screen === 'splash') return 'splash';
   if (state.screen === 'home') return 'home' as PageLayout;
   if (state.screen === 'stock-detail') return 'chart';
+  if (state.screen === 'watchlist' || state.screen === 'portfolio' || state.screen === 'overview') return 'columns';
   return 'text';
+}
+
+function getColumnLayoutContent(state: AppState): string[] | null {
+  switch (state.screen) {
+    case 'watchlist': {
+      const cols = buildWatchlistColumns(state);
+      return [cols.sym, cols.price, cols.pct];
+    }
+    case 'portfolio': {
+      const cols = buildPortfolioColumns(state);
+      return [cols.labels, cols.values, cols.detail];
+    }
+    case 'overview': {
+      const cols = buildOverviewColumns(state);
+      return [cols.labels, cols.values, cols.detail];
+    }
+    default:
+      return null;
+  }
 }
 
 async function ensureLayout(state: AppState): Promise<void> {
@@ -62,11 +106,13 @@ async function ensureLayout(state: AppState): Promise<void> {
     await hub.switchToHomeLayout(buildHomeText(state), imageTiles);
   } else if (desired === 'chart') {
     await hub.switchToChartLayout(buildChartTopText(state));
-  } else if (state.screen === 'watchlist') {
-    const cols = buildWatchlistColumns(state);
-    await hub.switchToWatchlist(cols.sym, cols.price, cols.pct);
+  } else if (desired === 'columns') {
+    const columns = getColumnLayoutContent(state);
+    if (columns) await hub.showColumnPage(columns);
   } else if (state.screen === 'settings') {
     await hub.switchToSettings(buildFullText(state));
+  } else {
+    await hub.showTextPage(buildFullText(state));
   }
 }
 
@@ -78,6 +124,7 @@ let textPending = false;
 async function flushText(state: AppState): Promise<void> {
   if (!hub || !hub.pageReady) return;
   if (state.screen === 'splash') return;
+  if (glassAlertToastActive) return;
 
   if (textInFlight) { textPending = true; return; }
   textInFlight = true;
@@ -94,20 +141,20 @@ async function flushText(state: AppState): Promise<void> {
       updatePromise = hub.updateHomeText(buildHomeText(state));
     } else if (hub.currentLayout === 'chart') {
       updatePromise = hub.updateChartText(buildChartTopText(state));
-    } else if (state.screen === 'watchlist') {
-      const cols = buildWatchlistColumns(state);
-      updatePromise = hub.updateWatchlist(cols.sym, cols.price, cols.pct);
+    } else if (hub.currentLayout === 'columns') {
+      const columns = getColumnLayoutContent(state);
+      updatePromise = columns ? hub.updateColumns(columns) : hub.updateText(buildFullText(state));
     } else if (state.screen === 'settings') {
       updatePromise = hub.updateSettings(buildFullText(state));
     } else {
       updatePromise = hub.updateText(buildFullText(state));
     }
 
-    updatePromise.catch(() => {}).finally(() => {
+    updatePromise.catch(() => { }).finally(() => {
       textInFlight = false;
       if (textPending) {
         textPending = false;
-        flushText(store.getState()).catch(() => {});
+        flushText(store.getState()).catch(() => { });
       }
     });
   } catch {
@@ -138,6 +185,7 @@ function candleToTile(candleIdx: number, totalCandles: number, viewportSize: num
 async function flushImages(state: AppState, prev?: AppState): Promise<void> {
   if (!hub || !hub.pageReady || (hub.currentLayout !== 'chart' && hub.currentLayout !== 'home')) return;
   if (state.screen === 'splash') return;
+  if (glassAlertToastActive) return;
   if (imgBusy) { imgDirty = true; return; }
 
   imgBusy = true;
@@ -200,7 +248,7 @@ async function flushImages(state: AppState, prev?: AppState): Promise<void> {
     if (imgDirty) {
       setTimeout(() => {
         imgDirty = false;
-        flushImages(store.getState()).catch(() => {});
+        flushImages(store.getState()).catch(() => { });
       }, IMG_INTERVAL);
     }
   }
@@ -209,7 +257,8 @@ async function flushImages(state: AppState, prev?: AppState): Promise<void> {
 // ── Combined flush ──
 
 function flushDisplay(state: AppState, prev?: AppState): void {
-  flushText(state).catch(() => {});
+  if (glassAlertToastActive) return;
+  flushText(state).catch(() => { });
   const layout = getDesiredLayout(state);
   if (layout === 'chart' || layout === 'home') {
     if (prev && (
@@ -221,7 +270,7 @@ function flushDisplay(state: AppState, prev?: AppState): void {
       tileHashes.clear();
       resetViewport();
     }
-    flushImages(state, prev).catch(() => {});
+    flushImages(state, prev).catch(() => { });
   }
 }
 
@@ -244,19 +293,439 @@ function padL(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
 }
 
+function truncateText(value: string, max = 28): string {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+
+function wrapTextLines(value: string, width = 28): string[] {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+    if (`${current} ${word}`.length <= width) {
+      current = `${current} ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function applyInlineScrollIndicators(lines: string[], start: number, totalCount: number, visibleCount: number): string[] {
+  if (lines.length === 0) return lines;
+  const next = [...lines];
+  if (start > 0) next[0] = '  \u25B2';
+  if (start + visibleCount < totalCount) next[next.length - 1] = '  \u25BC';
+  return next;
+}
+
+function centerLine(text: string, width = GLASS_ALERT_WIDTH): string {
+  const trimmed = truncate(text, width);
+  const leftPad = Math.max(0, Math.floor((width - trimmed.length) / 2));
+  return `${' '.repeat(leftPad)}${trimmed}`;
+}
+
+function formatAlertToastTime(timestamp?: number): string {
+  if (!timestamp) return 'NOW';
+  const date = new Date(timestamp);
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function buildGlassAlertToastFrames(alert: PriceAlert): string[] {
+  const symbol = truncate(alert.symbol.toUpperCase(), GLASS_ALERT_WIDTH);
+  const directionMarker = alert.condition === 'above' ? '\u25B2' : '\u25BC';
+  const directionLabel = alert.condition === 'above' ? 'BROKE ABOVE' : 'BROKE BELOW';
+  const targetLine = `$${formatPrice(alert.targetPrice)}`;
+  const timeLine = `AT ${formatAlertToastTime(alert.triggeredAt)}`;
+
+  const frameA = [
+    centerLine('!!! PRICE ALERT !!!'),
+    '\u2500'.repeat(GLASS_ALERT_WIDTH),
+    '',
+    centerLine(symbol),
+    centerLine(`${directionMarker} ${directionLabel}`),
+    centerLine(targetLine),
+    '',
+    centerLine('TARGET LEVEL HIT'),
+    centerLine(timeLine),
+    centerLine('OPEN ALERTS TO REVIEW'),
+  ].join('\n');
+
+  const frameB = [
+    centerLine('>>> ALERT HIT <<<'),
+    '\u2500'.repeat(GLASS_ALERT_WIDTH),
+    centerLine('NEW UNREAD ALERT'),
+    '',
+    centerLine(symbol),
+    centerLine(alert.condition === 'above' ? 'ABOVE TARGET' : 'BELOW TARGET'),
+    centerLine(targetLine),
+    '',
+    centerLine('CHECK ALERTS NOW'),
+    centerLine(`${directionMarker} ${directionMarker} ${directionMarker}`),
+  ].join('\n');
+
+  return [frameA, frameB];
+}
+
+function showTransientGlassAlertToast(alert: PriceAlert): void {
+  if (!hub || !hub.pageReady || !alert.triggeredAt) return;
+  const frames = buildGlassAlertToastFrames(alert);
+  let frameIndex = 0;
+  glassAlertToastActive = true;
+  if (glassAlertToastTimer) clearTimeout(glassAlertToastTimer);
+  if (glassAlertPulseTimer) clearInterval(glassAlertPulseTimer);
+  void hub.showTextPage(frames[0]!);
+  glassAlertPulseTimer = setInterval(() => {
+    if (!hub || !hub.pageReady || !glassAlertToastActive) return;
+    frameIndex = (frameIndex + 1) % frames.length;
+    void hub.updateText(frames[frameIndex]!);
+  }, GLASS_ALERT_PULSE_MS);
+  glassAlertToastTimer = setTimeout(() => {
+    glassAlertToastActive = false;
+    if (glassAlertPulseTimer) {
+      clearInterval(glassAlertPulseTimer);
+      glassAlertPulseTimer = null;
+    }
+    glassAlertToastTimer = null;
+    flushDisplay(store.getState());
+  }, GLASS_ALERT_DURATION_MS);
+}
+
+function buildPortfolioText(state: AppState, time: string): string {
+  const holdings = state.portfolio;
+  if (holdings.length === 0) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'Portfolio',
+      actionBar: time,
+      contentLines: ['No holdings yet', '', 'Add holdings from web'],
+      scrollPos: 0,
+    }));
+  }
+
+  const totalValue = holdings.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+  const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+  const list = buildScrollableList({
+    items: holdings,
+    highlightedIndex: Math.min(state.highlightedIndex, holdings.length - 1),
+    maxVisible: DEFAULT_CONTENT_SLOTS,
+    formatter: (holding) => {
+      const quote = state.quotes[holding.symbol];
+      const marketValue = (quote?.price ?? holding.avgCost) * holding.quantity;
+      const pct = holding.avgCost > 0 ? (((quote?.price ?? holding.avgCost) - holding.avgCost) / holding.avgCost) * 100 : 0;
+      return truncate(`${holding.symbol} ${holding.quantity}u $${formatPrice(marketValue)} ${formatPercent(pct)}`, 54);
+    },
+  });
+  return renderDisplayData({
+    lines: [
+      { text: `Portfolio $${formatPrice(totalValue)}`, style: 'normal', inverted: false },
+      { text: `${totalPnl >= 0 ? '+' : ''}${formatPrice(totalPnl)} ${formatPercent(totalPnlPct)}`, style: 'meta', inverted: false },
+      ...list,
+    ],
+  });
+}
+
+function buildPortfolioColumns(state: AppState): { labels: string; values: string; detail: string } {
+  const holdings = state.portfolio;
+  const totalValue = holdings.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+  const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  const labelLines: string[] = ['P&L'];
+  const valueLines: string[] = [`${totalPnl >= 0 ? '+' : ''}${formatPrice(totalPnl)}`];
+  const detailLines: string[] = [`${formatPercent(totalPnlPct)}`];
+
+  if (holdings.length === 0) {
+    labelLines.push('', 'No holdings');
+    valueLines.push('', '');
+    detailLines.push('', 'Add from web');
+    return {
+      labels: labelLines.join('\n'),
+      values: valueLines.join('\n'),
+      detail: detailLines.join('\n'),
+    };
+  }
+
+  const maxVisible = 5;
+  const hi = Math.min(state.highlightedIndex, holdings.length - 1);
+  const winStart = slidingWindowStart(hi, holdings.length, maxVisible);
+  const winEnd = Math.min(holdings.length, winStart + maxVisible);
+
+  labelLines.push(winStart > 0 ? '  \u25B2' : '');
+  valueLines.push('');
+  detailLines.push('');
+
+  for (let i = winStart; i < winEnd; i++) {
+    const holding = holdings[i]!;
+    const quote = state.quotes[holding.symbol];
+    const marketValue = (quote?.price ?? holding.avgCost) * holding.quantity;
+    const pct = holding.avgCost > 0 ? (((quote?.price ?? holding.avgCost) - holding.avgCost) / holding.avgCost) * 100 : 0;
+    labelLines.push(`${i === hi ? '\u25B6 ' : '  '}${truncateText(holding.symbol, 8)}`);
+    valueLines.push(`$${truncateText(formatPrice(marketValue), 9)}`);
+    detailLines.push(`${holding.quantity}u ${formatPercent(pct)}`);
+  }
+
+  if (winEnd < holdings.length) {
+    labelLines.push('  \u25BC');
+    valueLines.push('');
+    detailLines.push('');
+  }
+
+  return {
+    labels: labelLines.join('\n'),
+    values: valueLines.join('\n'),
+    detail: detailLines.join('\n'),
+  };
+}
+
+function buildHoldingDetailText(state: AppState, time: string): string {
+  const holding = state.selectedHoldingId
+    ? state.portfolio.find((item) => item.id === state.selectedHoldingId) ?? null
+    : null;
+  if (!holding) return `Holding${' '.repeat(20)}${time}\n\nNo holding selected`;
+
+  const quote = state.quotes[holding.symbol];
+  const currentPrice = quote?.price ?? holding.avgCost;
+  const marketValue = currentPrice * holding.quantity;
+  const costBasis = holding.avgCost * holding.quantity;
+  const pnl = marketValue - costBasis;
+  const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+
+  return [
+    `${holding.symbol}${' '.repeat(Math.max(1, 28 - holding.symbol.length - time.length))}${time}`,
+    `${holding.assetType.toUpperCase()}`,
+    '',
+    `Price  $${formatPrice(currentPrice)}`,
+    `Qty    ${holding.quantity}`,
+    `Avg    $${formatPrice(holding.avgCost)}`,
+    `Value  $${formatPrice(marketValue)}`,
+    `PnL    ${pnl >= 0 ? '+' : ''}${formatPrice(pnl)} ${formatPercent(pnlPct)}`,
+    quote ? `Range  $${formatPrice(quote.low)}-$${formatPrice(quote.high)}` : '',
+    quote ? `Vol    ${formatVolume(quote.volume)}` : '',
+  ].join('\n');
+}
+
+function buildAlertsText(state: AppState, time: string): string {
+  const alerts = sortAlertsForDisplay(state.alerts);
+  if (alerts.length === 0) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'Alerts',
+      actionBar: time,
+      contentLines: ['No alerts', '', 'Create alerts from web'],
+      scrollPos: 0,
+    }));
+  }
+  const list = buildScrollableList({
+    items: alerts,
+    highlightedIndex: Math.min(state.highlightedIndex, alerts.length - 1),
+    maxVisible: DEFAULT_CONTENT_SLOTS,
+    formatter: (alert) => {
+      const condition = alert.condition === 'above' ? '>' : '<';
+      const status = isUnreadTriggeredAlert(alert) ? ' new' : alert.triggered ? ' hit' : '';
+      return truncate(`${alert.symbol} ${condition} $${formatPrice(alert.targetPrice)}${status}`, 54);
+    },
+  });
+  return renderDisplayData({ lines: [{ text: `Alerts  ${time}`, style: 'normal', inverted: false }, { text: '', style: 'separator', inverted: false }, ...list] });
+}
+
+function buildOverviewText(state: AppState, time: string): string {
+  const activeQuotes = state.settings.graphics
+    .map((graphic) => state.quotes[graphic.symbol])
+    .filter((quote): quote is NonNullable<typeof quote> => !!quote);
+
+  const gainers = activeQuotes.filter((q) => q.changePercent > 0).length;
+  const losers = activeQuotes.filter((q) => q.changePercent < 0).length;
+  const unchanged = activeQuotes.length - gainers - losers;
+  const totalVolume = activeQuotes.reduce((sum, q) => sum + q.volume, 0);
+  const best = [...activeQuotes].sort((a, b) => b.changePercent - a.changePercent)[0];
+  const worst = [...activeQuotes].sort((a, b) => a.changePercent - b.changePercent)[0];
+
+  const contentLines = [
+    `Watchlist ${state.settings.graphics.length}`,
+    `Gainers   ${gainers}`,
+    `Losers    ${losers}`,
+    `Flat      ${unchanged}`,
+    `Volume    ${formatVolume(totalVolume)}`,
+    `Holdings  ${state.portfolio.length}`,
+    '',
+    best ? `Best      ${best.symbol} ${formatPercent(best.changePercent)}` : 'Best      --',
+    worst ? `Worst     ${worst.symbol} ${formatPercent(worst.changePercent)}` : 'Worst     --',
+  ];
+  return renderDisplayData(buildScrollableContent({
+    title: 'Overview',
+    actionBar: time,
+    contentLines,
+    scrollPos: state.highlightedIndex,
+  }));
+}
+
+function buildOverviewColumns(state: AppState): { labels: string; values: string; detail: string } {
+  const activeQuotes = state.settings.graphics
+    .map((graphic) => state.quotes[graphic.symbol])
+    .filter((quote): quote is NonNullable<typeof quote> => !!quote);
+
+  const gainers = activeQuotes.filter((q) => q.changePercent > 0).length;
+  const losers = activeQuotes.filter((q) => q.changePercent < 0).length;
+  const unchanged = activeQuotes.length - gainers - losers;
+  const totalVolume = activeQuotes.reduce((sum, q) => sum + q.volume, 0);
+  const best = [...activeQuotes].sort((a, b) => b.changePercent - a.changePercent)[0];
+  const worst = [...activeQuotes].sort((a, b) => a.changePercent - b.changePercent)[0];
+  const portfolioValue = state.portfolio.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+
+  const labels = [
+    'Watchlist',
+    'Gainers',
+    'Losers',
+    'Flat',
+    'Volume',
+    'Holdings',
+  ].join('\n');
+
+  const values = [
+    `${state.settings.graphics.length}`,
+    `${gainers}`,
+    `${losers}`,
+    `${unchanged}`,
+    `${formatVolume(totalVolume)}`,
+    `${state.portfolio.length}`,
+  ].join('\n');
+
+  const detail = [
+    'Best',
+    best ? `${best.symbol} ${formatPercent(best.changePercent)}` : '--',
+    '',
+    'Worst',
+    worst ? `${worst.symbol} ${formatPercent(worst.changePercent)}` : '--',
+    '',
+    'Portfolio',
+    state.portfolio.length > 0 ? `$${formatPrice(portfolioValue)}` : '--',
+  ].join('\n');
+
+  return { labels, values, detail };
+}
+
+function buildNewsText(state: AppState, time: string): string {
+  const items = state.news;
+  if (items.length === 0) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'News',
+      actionBar: time,
+      contentLines: ['Loading news...'],
+      scrollPos: 0,
+    }));
+  }
+  const list = buildScrollableList({
+    items,
+    highlightedIndex: Math.min(state.highlightedIndex, items.length - 1),
+    maxVisible: DEFAULT_CONTENT_SLOTS,
+    formatter: (item) => {
+      const meta = item.category === 'crypto' ? 'Crypto' : item.category === 'stocks' ? 'Market' : 'News';
+      return truncate(`[${meta}] ${item.title}`, 54);
+    },
+  });
+  return renderDisplayData({ lines: [{ text: `News  ${time}`, style: 'normal', inverted: false }, { text: '', style: 'separator', inverted: false }, ...list] });
+}
+
+function buildNewsDetailText(state: AppState, time: string): string {
+  const item = state.selectedNewsId
+    ? state.news.find((news) => news.id === state.selectedNewsId) ?? null
+    : null;
+  if (!item) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'Article',
+      actionBar: time,
+      contentLines: ['No article selected'],
+      scrollPos: 0,
+    }));
+  }
+  const articleBody = state.selectedNewsLoading
+    ? 'Loading article...'
+    : (state.selectedNewsContent ?? item.description ?? item.url);
+  const contentLines = [
+    `${item.source} · ${item.publishedAt}`,
+    item.category.toUpperCase(),
+    '',
+    ...wrapTextLines(articleBody, 54),
+    '',
+    ...wrapTextLines(item.url.replace(/^https?:\/\//, ''), 54),
+  ];
+  return renderDisplayData(buildScrollableContent({
+    title: truncate(item.title, 28),
+    actionBar: time,
+    contentLines,
+    scrollPos: state.highlightedIndex,
+    contentStyle: 'normal',
+  }));
+}
+
+function buildWatchlistText(state: AppState, time: string): string {
+  const lines: string[] = [`Watchlist${' '.repeat(18)}${time}`, '\u2500'.repeat(28)];
+  const items = state.settings.graphics;
+  if (items.length === 0) {
+    lines.push('No symbols added');
+    return lines.join('\n');
+  }
+
+  const maxVisible = DEFAULT_CONTENT_SLOTS;
+  const hi = Math.min(state.highlightedIndex, items.length - 1);
+  const winStart = slidingWindowStart(hi, items.length, maxVisible);
+  const winEnd = Math.min(items.length, winStart + maxVisible);
+  if (winStart > 0) lines.push('  \u25B2');
+  for (let i = winStart; i < winEnd; i++) {
+    const graphic = items[i]!;
+    const quote = state.quotes[graphic.symbol];
+    const value = quote ? `$${formatPrice(quote.price)} ${formatPercent(quote.changePercent)}` : 'Loading';
+    lines.push(`${i === hi ? '\u25B6 ' : '  '}${truncateText(`${graphic.symbol} ${formatResolutionShort(graphic.resolution)} ${value}`, 28)}`);
+  }
+  if (winEnd < items.length) lines.push('  \u25BC');
+  return lines.join('\n');
+}
+
 /** Home screen text (below chart image tiles): ER Market + menu buttons. */
 function buildHomeText(state: AppState): string {
   const lang = state.settings.language;
   const hi = state.highlightedIndex;
+  const unreadAlerts = getUnreadTriggeredAlertCount(state.alerts);
   const items = [
     t('home.watchlist', lang),
     'Portfolio',
     'Overview',
-    'Alerts',
+    unreadAlerts > 0 ? `Alerts (${unreadAlerts})` : 'Alerts',
     'News',
     t('home.settings', lang),
   ];
-  return '\n' + items.map((label, i) => `${i === hi ? '\u25B6 ' : '  '}${label}`).join('\n');
+
+  return renderDisplayData({
+    lines: buildScrollableList({
+      items,
+      highlightedIndex: hi,
+      maxVisible: 6,
+      formatter: (label) => truncate(label, 54),
+    }),
+  });
 }
 
 /** Build 3 column strings for the watchlist (symbol, price, percent). */
@@ -325,10 +794,26 @@ function buildFullText(state: AppState): string {
       return '';
 
     case 'watchlist': {
-      // Watchlist uses 3-column layout via buildWatchlistColumns
-      const cols = buildWatchlistColumns(state);
-      return cols.sym; // fallback — actual rendering uses updateWatchlist
+      return buildWatchlistText(state, time);
     }
+
+    case 'portfolio':
+      return buildPortfolioText(state, time);
+
+    case 'holding-detail':
+      return buildHoldingDetailText(state, time);
+
+    case 'alerts':
+      return buildAlertsText(state, time);
+
+    case 'overview':
+      return buildOverviewText(state, time);
+
+    case 'news':
+      return buildNewsText(state, time);
+
+    case 'news-detail':
+      return buildNewsDetailText(state, time);
 
     case 'settings': {
       const lang = state.settings.language;
@@ -336,54 +821,28 @@ function buildFullText(state: AppState): string {
       const hi = state.highlightedIndex;
       const editing = state.settingsEditActive;
       const lines: string[] = [];
+      const buildSettingRow = (rowIndex: number, label: string, value: string, gap = 10) => {
+        const prefix = hi === rowIndex ? '\u25B6 ' : '  ';
+        const valueText = editing && hi === rowIndex
+          ? `\u25C0 [${value}] \u25B6`
+          : value;
+        return `${prefix}${padR(label, gap)} ${valueText}`;
+      };
 
       lines.push(`${t('settings.title', lang)}${' '.repeat(19)}${time}`);
       lines.push('');
 
       // Refresh row
       const refreshLabel = `${s.refreshInterval}s`;
-      const refreshActive = editing && hi === 0 ? t('settings.refresh', lang) : null;
-      const refreshBar = buildActionBar(
-        [t('settings.refresh', lang)],
-        hi === 0 ? 0 : -1,
-        refreshActive,
-        state.candleFlashPhase,
-      );
-      if (editing && hi === 0) {
-        lines.push(`${refreshBar}  \u25C0 [${refreshLabel}] \u25B6`);
-      } else {
-        lines.push(`${refreshBar}  ${refreshLabel}`);
-      }
+      lines.push(buildSettingRow(0, t('settings.refresh', lang), refreshLabel));
 
       // Chart type row
       const chartLabel = s.chartType === 'sparkline' ? t('settings.sparkline', lang) : t('settings.candles', lang);
-      const chartActive = editing && hi === 1 ? t('settings.chart', lang) : null;
-      const chartBar = buildActionBar(
-        [t('settings.chart', lang)],
-        hi === 1 ? 0 : -1,
-        chartActive,
-        state.candleFlashPhase,
-      );
-      if (editing && hi === 1) {
-        lines.push(`${chartBar}    \u25C0 [${chartLabel}] \u25B6`);
-      } else {
-        lines.push(`${chartBar}    ${chartLabel}`);
-      }
+      lines.push(buildSettingRow(1, t('settings.chart', lang), chartLabel));
 
       // Language row
       const langName = getLanguageName(s.language);
-      const langActive = editing && hi === 2 ? t('settings.language', lang) : null;
-      const langBar = buildActionBar(
-        [t('settings.language', lang)],
-        hi === 2 ? 0 : -1,
-        langActive,
-        state.candleFlashPhase,
-      );
-      if (editing && hi === 2) {
-        lines.push(`${langBar}    \u25C0 [${langName}] \u25B6`);
-      } else {
-        lines.push(`${langBar}    ${langName}`);
-      }
+      lines.push(buildSettingRow(2, t('settings.language', lang), langName));
 
       return lines.join('\n');
     }
@@ -455,6 +914,13 @@ function shouldUpdateDisplay(state: AppState, prev: AppState): boolean {
   if (state.settingsEditActive !== prev.settingsEditActive) return true;
   if (state.candleFlashPhase !== prev.candleFlashPhase) return true;
   if (state.settings !== prev.settings) return true;
+  if (state.portfolio !== prev.portfolio) return true;
+  if (state.alerts !== prev.alerts) return true;
+  if (state.news !== prev.news) return true;
+  if (state.selectedHoldingId !== prev.selectedHoldingId) return true;
+  if (state.selectedNewsId !== prev.selectedNewsId) return true;
+  if (state.selectedNewsContent !== prev.selectedNewsContent) return true;
+  if (state.selectedNewsLoading !== prev.selectedNewsLoading) return true;
   if (state.loading !== prev.loading) return true;
   if (state.lastError !== prev.lastError) return true;
   return false;
@@ -493,6 +959,46 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     storageSet('even-market-settings', state.settings);
   }
 
+  if (state.portfolio !== prev.portfolio) {
+    storageSet('even-market:portfolio', state.portfolio);
+  }
+
+  if (state.alerts !== prev.alerts) {
+    storageSet('even-market:alerts', state.alerts);
+
+    const latest = getLatestTriggeredAlert(state.alerts);
+    const prevLatest = getLatestTriggeredAlert(prev.alerts);
+    const latestTriggeredAt = latest?.triggeredAt ?? 0;
+    const prevTriggeredAt = prevLatest?.triggeredAt ?? 0;
+    if (latest && latestTriggeredAt > prevTriggeredAt && state.screen !== 'alerts') {
+      showTransientGlassAlertToast(latest);
+    }
+  }
+
+  if (
+    state.screen === 'news-detail' &&
+    state.selectedNewsId &&
+    state.selectedNewsLoading &&
+    (
+      state.screen !== prev.screen ||
+      state.selectedNewsId !== prev.selectedNewsId ||
+      (!prev.selectedNewsLoading && !state.selectedNewsContent)
+    )
+  ) {
+    const currentId = state.selectedNewsId;
+    const item = state.news.find((news) => news.id === currentId);
+    if (item) {
+      void fetchNewsArticleContent(item.url).then((content) => {
+        const latest = store.getState();
+        if (latest.screen === 'news-detail' && latest.selectedNewsId === currentId) {
+          store.dispatch({ type: 'NEWS_ARTICLE_LOADED', newsId: currentId, content });
+        }
+      });
+    } else {
+      store.dispatch({ type: 'NEWS_ARTICLE_LOADED', newsId: currentId, content: 'Could not load article.' });
+    }
+  }
+
   // Persist candles for splash screen
   if (state.candles !== prev.candles && state.candles.length > 0) {
     saveSplashCandles(state.candles);
@@ -511,7 +1017,7 @@ function mountHiddenCanvas(): void {
 function migrateOldSettings(raw: string): Record<string, unknown> {
   const settings = JSON.parse(raw);
   if (settings.watchlist && Array.isArray(settings.watchlist) && settings.watchlist.length > 0
-      && typeof settings.watchlist[0] === 'string') {
+    && typeof settings.watchlist[0] === 'string') {
     const resolution: ChartResolution = settings.chartResolution || 'D';
     settings.graphics = (settings.watchlist as string[]).map((sym: string) => ({
       id: makeGraphicId(sym, resolution),
@@ -534,6 +1040,17 @@ async function loadSettings(): Promise<void> {
       storageSet('even-market-settings', store.getState().settings);
     }
   } catch { /* use defaults */ }
+
+  // Load portfolio + alerts
+  try {
+    const portfolio = await storageGet<import('../state/types').PortfolioHolding[]>('even-market:portfolio', []);
+    if (portfolio.length > 0) store.dispatch({ type: 'PORTFOLIO_LOADED', portfolio });
+  } catch { /* ignore */ }
+
+  try {
+    const alerts = await storageGet<import('../state/types').PriceAlert[]>('even-market:alerts', []);
+    if (alerts.length > 0) store.dispatch({ type: 'ALERTS_LOADED', alerts });
+  } catch { /* ignore */ }
 }
 
 export function getStore(): ReturnType<typeof createStore> {
@@ -570,7 +1087,7 @@ export async function initGlassesRenderer(): Promise<void> {
 
     // Now dispatch — subscriber won't rebuild since layout is already 'home'
     store.dispatch({ type: 'APP_INIT' });
-  }).catch(() => {});
+  }).catch(() => { });
 
   store.subscribe((state, prev) => {
     if (shouldUpdateDisplay(state, prev)) {

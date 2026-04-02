@@ -1,4 +1,5 @@
-import { createSplash, TILE_PRESETS } from 'even-toolkit/splash';
+import { createSplash } from 'even-toolkit/splash';
+import { DISPLAY_W, G2_IMAGE_MAX_W } from 'even-toolkit/layout';
 
 // Exact pixel grid extracted from Even Hub icon (23x23)
 const MARKET_ICON = [
@@ -67,7 +68,14 @@ function renderMarketSplash(ctx: CanvasRenderingContext2D, w: number, h: number)
 export const marketSplash = createSplash({
   tiles: 1,
   tileLayout: 'vertical',
-  tilePositions: TILE_PRESETS.topCenter1,
+  tilePositions: [
+    {
+      x: Math.floor((DISPLAY_W - G2_IMAGE_MAX_W) / 2),
+      y: 16,
+      w: 176,
+      h: 72,
+    },
+  ],
   canvasSize: { w: 200, h: 200 },
   minTimeMs: 0,
   maxTimeMs: 0,

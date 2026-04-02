@@ -2,14 +2,16 @@ import type { Store } from '../state/store';
 import type { ChartResolution, GraphicEntry } from '../state/types';
 import { getQuotes, getCandles, getCandlesByPeriod, resolutionToRange, resolutionToHistoryStep } from './yahoo-finance';
 import { getCryptoQuotes, getCryptoCandles, resolutionToCgDays } from './coingecko';
+import { fetchMarketNews } from './news';
 import { storageSet } from 'even-toolkit/storage';
 
-const PORTFOLIO_KEY = 'even-market-portfolio';
-const ALERTS_KEY = 'even-market-alerts';
+const PORTFOLIO_KEY = 'even-market:portfolio';
+const ALERTS_KEY = 'even-market:alerts';
 
 export class Poller {
   private store: Store;
   private quoteTimer: ReturnType<typeof setInterval> | null = null;
+  private newsTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
 
   constructor(store: Store) {
@@ -19,7 +21,9 @@ export class Poller {
   start(): void {
     this.disposed = false;
     this.pollQuotes();
+    this.pollNews();
     this.startQuoteInterval();
+    this.startNewsInterval();
 
     this.store.subscribe((state, prev) => {
       if (state.settings.refreshInterval !== prev.settings.refreshInterval) {
@@ -43,6 +47,11 @@ export class Poller {
     if (this.quoteTimer) clearInterval(this.quoteTimer);
     const interval = this.store.getState().settings.refreshInterval * 1000;
     this.quoteTimer = setInterval(() => this.pollQuotes(), interval);
+  }
+
+  private startNewsInterval(): void {
+    if (this.newsTimer) clearInterval(this.newsTimer);
+    this.newsTimer = setInterval(() => this.pollNews(), 5 * 60 * 1000);
   }
 
   async pollQuotes(): Promise<void> {
@@ -94,6 +103,18 @@ export class Poller {
     if (!this.disposed && Object.keys(merged).length > 0) {
       this.store.dispatch({ type: 'QUOTES_UPDATED', quotes: merged });
       this.checkAlerts(merged);
+    }
+  }
+
+  async pollNews(): Promise<void> {
+    if (this.disposed) return;
+    try {
+      const news = await fetchMarketNews();
+      if (!this.disposed) {
+        this.store.dispatch({ type: 'NEWS_LOADED', news });
+      }
+    } catch {
+      // ignore transient news failures
     }
   }
 
@@ -187,5 +208,6 @@ export class Poller {
   dispose(): void {
     this.disposed = true;
     if (this.quoteTimer) clearInterval(this.quoteTimer);
+    if (this.newsTimer) clearInterval(this.newsTimer);
   }
 }

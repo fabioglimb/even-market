@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import type { Screen } from '../state/types';
+import { useState, useEffect, useRef } from 'react';
+import type { Screen, PriceAlert } from '../state/types';
 import { useSelector, useDispatch } from './hooks/use-store';
-import { SideDrawer, DrawerTrigger, NavHeader, Button } from 'even-toolkit/web';
+import { SideDrawer, DrawerTrigger, NavHeader, Button, Toast } from 'even-toolkit/web';
 import type { SideDrawerItem } from 'even-toolkit/web';
-import { IcFeatStocks, IcEditSettings, IcChevronBack, IcFeatNotification, IcFeatLearnExplore, IcEditChecklist, IcFeatNews, IcEditAdd } from 'even-toolkit/web/icons/svg-icons';
+import { IcFeatStocks, IcEditSettings, IcChevronBack, IcFeatNotification, IcFeatLearnExplore, IcEditChecklist, IcFeatNews, IcEditAdd, IcEditShare } from 'even-toolkit/web/icons/svg-icons';
 import { WatchlistScreen } from './screens/watchlist-screen';
 import { ChartScreen } from './screens/chart-screen';
 import { SettingsScreen } from './screens/settings-screen';
@@ -14,18 +14,12 @@ import { HoldingFormScreen } from './screens/holding-form-screen';
 import { AlertsScreen } from './screens/alerts-screen';
 import { OverviewScreen } from './screens/overview-screen';
 import { NewsScreen } from './screens/news-screen';
+import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount } from '../state/alert-utils';
+import { formatPrice } from '../utils/format';
 
-type WebScreen = Screen | 'how-it-works';
+type WebScreen = Screen | 'how-it-works' | 'news-detail';
 
 const iconProps = { width: 18, height: 18, className: 'text-current' };
-
-const MENU_ITEMS: SideDrawerItem[] = [
-  { id: 'watchlist', label: 'Watchlist', section: 'Market', icon: <IcFeatStocks {...iconProps} /> },
-  { id: 'overview', label: 'Overview', section: 'Market', icon: <IcFeatLearnExplore {...iconProps} /> },
-  { id: 'portfolio', label: 'Portfolio', section: 'Market', icon: <IcEditChecklist {...iconProps} /> },
-  { id: 'alerts', label: 'Alerts', section: 'Market', icon: <IcFeatNotification {...iconProps} /> },
-  { id: 'news', label: 'News', section: 'Market', icon: <IcFeatNews {...iconProps} /> },
-];
 
 const BOTTOM_ITEMS: SideDrawerItem[] = [
   { id: 'settings', label: 'Settings', icon: <IcEditSettings {...iconProps} /> },
@@ -48,6 +42,7 @@ function getScreenTitle(screen: WebScreen): string {
     case 'alerts': return 'Alerts';
     case 'overview': return 'Overview';
     case 'news': return 'News';
+    case 'news-detail': return 'Article';
     default: return 'ER Market';
   }
 }
@@ -58,6 +53,7 @@ function getBackScreen(screen: WebScreen): Screen {
     case 'holding-detail': return 'portfolio';
     case 'holding-form': return 'portfolio';
     case 'how-it-works': return 'watchlist';
+    case 'news-detail': return 'news';
     default: return 'watchlist';
   }
 }
@@ -65,17 +61,64 @@ function getBackScreen(screen: WebScreen): Screen {
 function App() {
   const dispatch = useDispatch();
   const storeScreen = useSelector((s) => s.screen);
+  const alerts = useSelector((s) => s.alerts);
   const [webScreen, setWebScreen] = useState<WebScreen>(storeScreen);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [portfolioAddTrigger, setPortfolioAddTrigger] = useState(0);
   const [alertAddTrigger, setAlertAddTrigger] = useState(0);
+  const selectedNewsId = useSelector((s) => s.selectedNewsId);
+  const news = useSelector((s) => s.news);
+  const selectedNewsArticle = selectedNewsId
+    ? news.find((item) => item.id === selectedNewsId) ?? null
+    : null;
+  const unreadAlertCount = getUnreadTriggeredAlertCount(alerts);
+  const [toastAlert, setToastAlert] = useState<PriceAlert | null>(null);
+  const lastTriggeredAtRef = useRef(0);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const menuItems: SideDrawerItem[] = [
+    { id: 'watchlist', label: 'Watchlist', section: 'Market', icon: <IcFeatStocks {...iconProps} /> },
+    { id: 'overview', label: 'Overview', section: 'Market', icon: <IcFeatLearnExplore {...iconProps} /> },
+    { id: 'portfolio', label: 'Portfolio', section: 'Market', icon: <IcEditChecklist {...iconProps} /> },
+    { id: 'alerts', label: unreadAlertCount > 0 ? `Alerts (${unreadAlertCount})` : 'Alerts', section: 'Market', icon: <IcFeatNotification {...iconProps} /> },
+    { id: 'news', label: 'News', section: 'Market', icon: <IcFeatNews {...iconProps} /> },
+  ];
 
   useEffect(() => {
     setWebScreen(storeScreen);
   }, [storeScreen]);
 
+  useEffect(() => {
+    if (webScreen !== 'portfolio' && portfolioAddTrigger !== 0) {
+      setPortfolioAddTrigger(0);
+    }
+    if (webScreen !== 'alerts' && alertAddTrigger !== 0) {
+      setAlertAddTrigger(0);
+    }
+  }, [webScreen, portfolioAddTrigger, alertAddTrigger]);
+
+  useEffect(() => {
+    const latest = getLatestTriggeredAlert(alerts);
+    const triggeredAt = latest?.triggeredAt ?? 0;
+    if (!triggeredAt || triggeredAt <= lastTriggeredAtRef.current) return;
+    lastTriggeredAtRef.current = triggeredAt;
+    if (webScreen !== 'alerts') {
+      setToastAlert(latest);
+    }
+  }, [alerts, webScreen]);
+
+  useEffect(() => {
+    if (!toastAlert) return;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastAlert(null), 4500);
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, [toastAlert]);
+
   function handleNavigate(screen: string) {
     setDrawerOpen(false);
+    setToastAlert(null);
     if (screen === 'how-it-works') {
       setWebScreen('how-it-works');
     } else {
@@ -99,11 +142,11 @@ function App() {
       onClose={() => setDrawerOpen(false)}
       onNavigate={handleNavigate}
       activeId={webScreen}
-      items={MENU_ITEMS}
+      items={menuItems}
       bottomItems={BOTTOM_ITEMS}
       title="ER Market"
     >
-      <div className="flex flex-col h-full">
+      <div className="relative flex flex-col h-full">
         <div className="shrink-0">
           <NavHeader
             title={getScreenTitle(webScreen)}
@@ -120,21 +163,63 @@ function App() {
                 <Button size="icon" onClick={() => setAlertAddTrigger((n) => n + 1)}>
                   <IcEditAdd width={16} height={16} />
                 </Button>
+              ) : webScreen === 'news-detail' && selectedNewsArticle ? (
+                <Button
+                  size="icon"
+                  className="bg-black text-white hover:bg-black/90"
+                  aria-label="Open article in browser"
+                  onClick={() => window.open(selectedNewsArticle.url, '_blank', 'noopener,noreferrer')}
+                >
+                  <IcEditShare width={16} height={16} />
+                </Button>
               ) : undefined
             }
           />
         </div>
         <div className="flex-1 overflow-y-auto">
           <div className="px-3 pt-4 pb-8">
-            {renderScreen(webScreen, portfolioAddTrigger, alertAddTrigger)}
+            {renderScreen(
+              webScreen,
+              portfolioAddTrigger,
+              alertAddTrigger,
+              setWebScreen,
+            )}
           </div>
         </div>
+        {toastAlert && (
+          <div className="absolute left-3 right-3 bottom-3 z-[3] pointer-events-none">
+            <div className="pointer-events-auto">
+              <Toast
+                variant="warning"
+                message={`${toastAlert.symbol} ${toastAlert.condition === 'above' ? 'rose above' : 'fell below'} $${formatPrice(toastAlert.targetPrice)}`}
+                action={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setToastAlert(null);
+                      dispatch({ type: 'NAVIGATE', screen: 'alerts' });
+                      setWebScreen('alerts');
+                    }}
+                  >
+                    View
+                  </Button>
+                }
+              />
+            </div>
+          </div>
+        )}
       </div>
     </SideDrawer>
   );
 }
 
-function renderScreen(screen: WebScreen, portfolioAddTrigger?: number, alertAddTrigger?: number) {
+function renderScreen(
+  screen: WebScreen,
+  portfolioAddTrigger?: number,
+  alertAddTrigger?: number,
+  onScreenChange?: (s: WebScreen) => void,
+) {
   switch (screen) {
     case 'watchlist':
       return <WatchlistScreen />;
@@ -155,7 +240,15 @@ function renderScreen(screen: WebScreen, portfolioAddTrigger?: number, alertAddT
     case 'overview':
       return <OverviewScreen />;
     case 'news':
-      return <NewsScreen />;
+    case 'news-detail':
+      return (
+        <NewsScreen
+          isDetail={screen === 'news-detail'}
+          onArticleOpen={() => {
+            onScreenChange?.('news-detail');
+          }}
+        />
+      );
     default:
       return <WatchlistScreen />;
   }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
-import { ListItem, Badge, EmptyState, Button, Card, Dialog, Input, Select, ConfirmDialog } from 'even-toolkit/web';
+import { ListItem, Badge, EmptyState, Button, Card, Dialog, Input, Select, ConfirmDialog, PieChart } from 'even-toolkit/web';
 import { IcEditChecklist } from 'even-toolkit/web/icons/svg-icons';
 import { formatPrice, formatPercent, displaySymbol } from '../../utils/format';
 import type { PortfolioHolding, AssetType } from '../../state/types';
@@ -27,13 +27,26 @@ function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
   const [avgCost, setAvgCost] = useState('');
 
   const totalValue = portfolio.reduce((sum, h) => {
-    const q = quotes[h.geckoId ?? h.symbol];
+    const q = quotes[h.symbol];
     return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
   }, 0);
 
   const totalCost = portfolio.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+  const allocationTotals = new Map<string, number>();
+  for (const holding of portfolio) {
+    const quote = quotes[holding.symbol];
+    const marketValue = (quote ? quote.price : holding.avgCost) * holding.quantity;
+    const key = displaySymbol(holding.symbol);
+    allocationTotals.set(key, (allocationTotals.get(key) ?? 0) + marketValue);
+  }
+  const allocationData = Array.from(allocationTotals.entries())
+    .map(([label, value]) => ({
+      label,
+      value: Number(value.toFixed(2)),
+    }))
+    .filter((item) => item.value > 0);
 
   // Build watchlist options for symbol picker
   const symbolOptions = graphics.map((g) => ({
@@ -87,6 +100,15 @@ function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
             </Badge>
           </div>
         </div>
+        {allocationData.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-border/60">
+            <PieChart
+              data={allocationData}
+              donut
+              size={180}
+            />
+          </div>
+        )}
       </Card>
 
       {/* Holdings list */}
@@ -107,7 +129,7 @@ function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
       </div>
 
       {/* Add Holding Dialog */}
-      <Dialog open={showForm} onClose={() => setShowForm(false)} title="Add Holding">
+      <Dialog open={showForm} onClose={() => setShowForm(false)} title="">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-[11px] tracking-[-0.11px] text-text-dim">Symbol (from watchlist)</span>
@@ -136,8 +158,8 @@ function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
             />
           </div>
           <div className="flex gap-3 mt-1.5">
-            <Button className="flex-1" onClick={handleSave}>Add</Button>
             <Button variant="ghost" className="flex-1" onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button className="flex-1" onClick={handleSave}>Add</Button>
           </div>
         </div>
       </Dialog>

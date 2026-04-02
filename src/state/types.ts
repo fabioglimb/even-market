@@ -11,7 +11,8 @@ export type Screen =
   | 'holding-form'
   | 'alerts'
   | 'overview'
-  | 'news';
+  | 'news'
+  | 'news-detail';
 
 export type AssetType = 'stock' | 'crypto' | 'forex' | 'commodity';
 
@@ -73,6 +74,18 @@ export interface PriceAlert {
   triggered: boolean;
   createdAt: number;
   triggeredAt?: number;
+  seenAt?: number;
+}
+
+export interface MarketNewsItem {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  source: string;
+  publishedAt: string;
+  timestamp: number;
+  category: 'stocks' | 'crypto' | 'general';
 }
 
 export interface Settings {
@@ -101,8 +114,12 @@ export interface AppState {
   loading: boolean;
   portfolio: PortfolioHolding[];
   alerts: PriceAlert[];
+  news: MarketNewsItem[];
   watchlistFilter: 'all' | AssetType;
   selectedHoldingId: string | null;
+  selectedNewsId: string | null;
+  selectedNewsContent: string | null;
+  selectedNewsLoading: boolean;
 }
 
 export const DEFAULT_GRAPHICS: GraphicEntry[] = [
@@ -141,6 +158,10 @@ export const initialState: AppState = {
   loading: false,
   portfolio: [],
   alerts: [],
+  news: [],
   watchlistFilter: 'all',
   selectedHoldingId: null,
+  selectedNewsId: null,
+  selectedNewsContent: null,
+  selectedNewsLoading: false,
 };

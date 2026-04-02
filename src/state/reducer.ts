@@ -5,10 +5,18 @@ import { wrapIndex } from 'even-toolkit/glass-nav';
 import { MARKET_LANGUAGES } from '../utils/i18n';
 import { detectAssetType } from '../data/yahoo-finance';
 import type { MarketLanguage } from '../utils/i18n';
+import { markTriggeredAlertsSeen } from './alert-utils';
 
 export { initialState };
 
 const RESOLUTIONS: ChartResolution[] = ['1', '5', '15', '60', 'D', 'W', 'M'];
+
+function withSeenAlertsOnEntry(state: AppState, screen: AppState['screen']): AppState {
+  if (screen !== 'alerts') return { ...state, screen, highlightedIndex: 0 };
+  const alerts = markTriggeredAlertsSeen(state.alerts);
+  if (alerts === state.alerts) return { ...state, screen, highlightedIndex: 0 };
+  return { ...state, screen, alerts, highlightedIndex: 0 };
+}
 
 export function reduce(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -16,7 +24,7 @@ export function reduce(state: AppState, action: Action): AppState {
       return { ...state, screen: 'home', highlightedIndex: 0 };
 
     case 'NAVIGATE':
-      return { ...state, screen: action.screen, highlightedIndex: 0 };
+      return withSeenAlertsOnEntry(state, action.screen);
 
     case 'GO_BACK': {
       if (state.screen === 'stock-detail') {
@@ -70,6 +78,16 @@ export function reduce(state: AppState, action: Action): AppState {
       if (state.screen === 'news') {
         return { ...state, screen: 'home', highlightedIndex: 0 };
       }
+      if (state.screen === 'news-detail') {
+        return {
+          ...state,
+          screen: 'news',
+          selectedNewsId: null,
+          selectedNewsContent: null,
+          selectedNewsLoading: false,
+          highlightedIndex: 0,
+        };
+      }
       return state;
     }
 
@@ -100,6 +118,15 @@ export function reduce(state: AppState, action: Action): AppState {
         // Wrap within graphics
         return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.settings.graphics.length) };
       }
+      if (state.screen === 'portfolio' && state.portfolio.length > 0) {
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.portfolio.length) };
+      }
+      if (state.screen === 'alerts' && state.alerts.length > 0) {
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.alerts.length) };
+      }
+      if (state.screen === 'news' && state.news.length > 0) {
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.news.length) };
+      }
       const next = Math.max(0, Math.min(maxIndex, state.highlightedIndex + delta));
       return { ...state, highlightedIndex: next };
     }
@@ -108,7 +135,7 @@ export function reduce(state: AppState, action: Action): AppState {
       if (state.screen === 'home') {
         const homeScreens = ['watchlist', 'portfolio', 'overview', 'alerts', 'news', 'settings'] as const;
         const target = homeScreens[state.highlightedIndex];
-        if (target) return { ...state, screen: target, highlightedIndex: 0 };
+        if (target) return withSeenAlertsOnEntry(state, target);
       }
       if (state.screen === 'watchlist') {
         const graphics = state.settings.graphics;
@@ -132,6 +159,30 @@ export function reduce(state: AppState, action: Action): AppState {
         }
         // Tap enters edit mode for the highlighted setting
         return { ...state, settingsEditActive: true };
+      }
+      if (state.screen === 'portfolio') {
+        const holding = state.portfolio[state.highlightedIndex];
+        if (holding) {
+          return {
+            ...state,
+            screen: 'holding-detail',
+            selectedHoldingId: holding.id,
+            highlightedIndex: 0,
+          };
+        }
+      }
+      if (state.screen === 'news') {
+        const item = state.news[state.highlightedIndex];
+        if (item) {
+          return {
+            ...state,
+            screen: 'news-detail',
+            selectedNewsId: item.id,
+            selectedNewsContent: null,
+            selectedNewsLoading: true,
+            highlightedIndex: 0,
+          };
+        }
       }
       if (state.screen === 'stock-detail') {
         if (state.tfNavActive) {
@@ -316,10 +367,51 @@ export function reduce(state: AppState, action: Action): AppState {
 
     case 'ALERT_TRIGGERED': {
       const updatedAlerts = state.alerts.map((a) =>
-        a.id === action.alertId ? { ...a, triggered: true, triggeredAt: action.triggeredAt } : a,
+        a.id === action.alertId
+          ? {
+              ...a,
+              triggered: true,
+              triggeredAt: action.triggeredAt,
+              seenAt: a.seenAt,
+            }
+          : a,
       );
       return { ...state, alerts: updatedAlerts };
     }
+
+    case 'ALERTS_MARK_SEEN': {
+      const alerts = markTriggeredAlertsSeen(state.alerts, action.seenAt);
+      return alerts === state.alerts ? state : { ...state, alerts };
+    }
+
+    case 'NEWS_LOADED':
+      return { ...state, news: action.news };
+
+    case 'NEWS_ARTICLE_LOADING':
+      return {
+        ...state,
+        selectedNewsId: action.newsId,
+        selectedNewsContent: null,
+        selectedNewsLoading: true,
+      };
+
+    case 'NEWS_ARTICLE_LOADED':
+      if (state.selectedNewsId !== action.newsId) return state;
+      return {
+        ...state,
+        selectedNewsContent: action.content,
+        selectedNewsLoading: false,
+      };
+
+    case 'SELECT_NEWS':
+      return {
+        ...state,
+        screen: 'news-detail',
+        selectedNewsId: action.newsId,
+        selectedNewsContent: null,
+        selectedNewsLoading: true,
+        highlightedIndex: 0,
+      };
 
     default:
       return state;
@@ -397,12 +489,65 @@ function cycleSettingsValue(state: AppState, direction = 1): AppState {
   }
 }
 
+function wrapTextLines(value: string, width = 28): string[] {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+    if (`${current} ${word}`.length <= width) {
+      current = `${current} ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function getNewsDetailMaxIndex(state: AppState): number {
+  const item = state.selectedNewsId
+    ? state.news.find((news) => news.id === state.selectedNewsId) ?? null
+    : null;
+  if (!item) return 0;
+  const articleBody = state.selectedNewsContent ?? item.description ?? item.url;
+  const bodyLines = [
+    ...wrapTextLines(item.title, 44),
+    '',
+    `${item.source} · ${item.publishedAt}`,
+    item.category.toUpperCase(),
+    '',
+    ...wrapTextLines(articleBody, 44),
+    '',
+    ...wrapTextLines(item.url.replace(/^https?:\/\//, ''), 44),
+  ];
+  return Math.max(0, bodyLines.length - 1);
+}
+
 function getMaxIndex(state: AppState): number {
   if (state.screen === 'home') {
     return 1; // 0=Watchlist, 1=Settings
   }
   if (state.screen === 'watchlist') {
     return state.settings.graphics.length - 1; // graphics only
+  }
+  if (state.screen === 'portfolio') {
+    return Math.max(0, state.portfolio.length - 1);
+  }
+  if (state.screen === 'alerts') {
+    return Math.max(0, state.alerts.length - 1);
+  }
+  if (state.screen === 'news') {
+    return Math.max(0, state.news.length - 1);
+  }
+  if (state.screen === 'news-detail') {
+    return getNewsDetailMaxIndex(state);
   }
   if (state.screen === 'stock-detail') {
     return 1; // two buttons: 0=timeframe, 1=candles

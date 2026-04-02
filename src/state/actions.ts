@@ -1,4 +1,4 @@
-import type { Screen, StockQuote, Candle, ChartType, ChartResolution, AssetType, PortfolioHolding, PriceAlert } from './types';
+import type { Screen, StockQuote, Candle, ChartType, ChartResolution, AssetType, PortfolioHolding, PriceAlert, MarketNewsItem } from './types';
 
 export type Action =
   | { type: 'APP_INIT' }
@@ -31,4 +31,9 @@ export type Action =
   | { type: 'ALERTS_LOADED'; alerts: PriceAlert[] }
   | { type: 'ALERT_ADD'; alert: PriceAlert }
   | { type: 'ALERT_REMOVE'; alertId: string }
-  | { type: 'ALERT_TRIGGERED'; alertId: string; triggeredAt: number };
+  | { type: 'ALERT_TRIGGERED'; alertId: string; triggeredAt: number }
+  | { type: 'ALERTS_MARK_SEEN'; seenAt?: number }
+  | { type: 'NEWS_LOADED'; news: MarketNewsItem[] }
+  | { type: 'NEWS_ARTICLE_LOADING'; newsId: string }
+  | { type: 'NEWS_ARTICLE_LOADED'; newsId: string; content: string }
+  | { type: 'SELECT_NEWS'; newsId: string };
