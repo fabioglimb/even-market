@@ -14,6 +14,7 @@ import type { AppState, GraphicEntry, ChartResolution, PriceAlert } from '../sta
 import { makeGraphicId } from '../state/types';
 import { getDisplayData } from '../state/selectors';
 import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount, isUnreadTriggeredAlert, sortAlertsForDisplay } from '../state/alert-utils';
+import { filterNewsItems } from '../state/news-utils';
 import { mapEvenHubEvent } from '../input/action-map';
 import { renderToCanvasDirect, drawCandlesInto, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
@@ -43,12 +44,10 @@ let store: ReturnType<typeof createStore>;
 let poller: Poller;
 let flashTimer: ReturnType<typeof setInterval> | null = null;
 let glassAlertToastActive = false;
-let glassAlertToastTimer: ReturnType<typeof setTimeout> | null = null;
-let glassAlertPulseTimer: ReturnType<typeof setInterval> | null = null;
 const GLASSES_NEWS_WIDTH = 44;
-const GLASS_ALERT_WIDTH = 28;
-const GLASS_ALERT_PULSE_MS = 420;
-const GLASS_ALERT_DURATION_MS = 3800;
+const GLASS_ALERT_COL_WIDTH = 12;
+const GLASS_ALERT_CONTENT_ROWS = 4;
+const GLASS_ALERT_FRAME_ROW = '■'.repeat(9);
 
 function buildWideHeader(title: string, time: string, width = GLASSES_NEWS_WIDTH): string {
   const gap = Math.max(1, width - title.length - time.length);
@@ -329,10 +328,15 @@ function applyInlineScrollIndicators(lines: string[], start: number, totalCount:
   return next;
 }
 
-function centerLine(text: string, width = GLASS_ALERT_WIDTH): string {
+function alertColumnLine(text = ''): string {
+  return truncate(text, GLASS_ALERT_COL_WIDTH);
+}
+
+function centeredText(text: string, width: number): string {
   const trimmed = truncate(text, width);
   const leftPad = Math.max(0, Math.floor((width - trimmed.length) / 2));
-  return `${' '.repeat(leftPad)}${trimmed}`;
+  const rightPad = Math.max(0, width - trimmed.length - leftPad);
+  return `${' '.repeat(leftPad)}${trimmed}${' '.repeat(rightPad)}`;
 }
 
 function formatAlertToastTime(timestamp?: number): string {
@@ -343,64 +347,54 @@ function formatAlertToastTime(timestamp?: number): string {
   return `${hh}:${mm}`;
 }
 
-function buildGlassAlertToastFrames(alert: PriceAlert): string[] {
-  const symbol = truncate(alert.symbol.toUpperCase(), GLASS_ALERT_WIDTH);
-  const directionMarker = alert.condition === 'above' ? '\u25B2' : '\u25BC';
-  const directionLabel = alert.condition === 'above' ? 'BROKE ABOVE' : 'BROKE BELOW';
+function buildAlertColumn(lines: string[]): string {
+  const content = lines.map((line) => alertColumnLine(line));
+  while (content.length < GLASS_ALERT_CONTENT_ROWS) content.push('');
+  return [
+    centeredText(GLASS_ALERT_FRAME_ROW, GLASS_ALERT_COL_WIDTH),
+    ...content.slice(0, GLASS_ALERT_CONTENT_ROWS),
+    centeredText(GLASS_ALERT_FRAME_ROW, GLASS_ALERT_COL_WIDTH),
+  ].join('\n');
+}
+
+function buildGlassAlertToastColumns(alert: PriceAlert): string[] {
+  const symbol = truncate(alert.symbol.toUpperCase(), GLASS_ALERT_COL_WIDTH);
+  const symbolHeader = truncate(`• [${symbol}]`, GLASS_ALERT_COL_WIDTH);
+  const direction = alert.condition === 'above' ? '▲ ABOVE' : '▼ UNDER';
   const targetLine = `$${formatPrice(alert.targetPrice)}`;
-  const timeLine = `AT ${formatAlertToastTime(alert.triggeredAt)}`;
+  const timeLine = formatAlertToastTime(alert.triggeredAt);
 
-  const frameA = [
-    centerLine('!!! PRICE ALERT !!!'),
-    '\u2500'.repeat(GLASS_ALERT_WIDTH),
-    '',
-    centerLine(symbol),
-    centerLine(`${directionMarker} ${directionLabel}`),
-    centerLine(targetLine),
-    '',
-    centerLine('TARGET LEVEL HIT'),
-    centerLine(timeLine),
-    centerLine('OPEN ALERTS TO REVIEW'),
-  ].join('\n');
+  const left = buildAlertColumn([
+    '• [PRICE]',
+    '• CLICK',
+    '  DISMISS',
+  ]);
 
-  const frameB = [
-    centerLine('>>> ALERT HIT <<<'),
-    '\u2500'.repeat(GLASS_ALERT_WIDTH),
-    centerLine('NEW UNREAD ALERT'),
-    '',
-    centerLine(symbol),
-    centerLine(alert.condition === 'above' ? 'ABOVE TARGET' : 'BELOW TARGET'),
-    centerLine(targetLine),
-    '',
-    centerLine('CHECK ALERTS NOW'),
-    centerLine(`${directionMarker} ${directionMarker} ${directionMarker}`),
-  ].join('\n');
+  const middle = buildAlertColumn([
+    symbolHeader,
+    `• ${direction}`,
+    `  ${targetLine}`,
+  ]);
 
-  return [frameA, frameB];
+  const right = buildAlertColumn([
+    '• [ TIME ]',
+    '• HIT AT',
+    `  ${timeLine}`,
+  ]);
+
+  return [left, middle, right];
+}
+
+function dismissGlassAlertToast(): void {
+  if (!glassAlertToastActive) return;
+  glassAlertToastActive = false;
+  flushDisplay(store.getState());
 }
 
 function showTransientGlassAlertToast(alert: PriceAlert): void {
   if (!hub || !hub.pageReady || !alert.triggeredAt) return;
-  const frames = buildGlassAlertToastFrames(alert);
-  let frameIndex = 0;
   glassAlertToastActive = true;
-  if (glassAlertToastTimer) clearTimeout(glassAlertToastTimer);
-  if (glassAlertPulseTimer) clearInterval(glassAlertPulseTimer);
-  void hub.showTextPage(frames[0]!);
-  glassAlertPulseTimer = setInterval(() => {
-    if (!hub || !hub.pageReady || !glassAlertToastActive) return;
-    frameIndex = (frameIndex + 1) % frames.length;
-    void hub.updateText(frames[frameIndex]!);
-  }, GLASS_ALERT_PULSE_MS);
-  glassAlertToastTimer = setTimeout(() => {
-    glassAlertToastActive = false;
-    if (glassAlertPulseTimer) {
-      clearInterval(glassAlertPulseTimer);
-      glassAlertPulseTimer = null;
-    }
-    glassAlertToastTimer = null;
-    flushDisplay(store.getState());
-  }, GLASS_ALERT_DURATION_MS);
+  void hub.showColumnPage(buildGlassAlertToastColumns(alert));
 }
 
 function buildPortfolioText(state: AppState, time: string): string {
@@ -628,12 +622,12 @@ function buildOverviewColumns(state: AppState): { labels: string; values: string
 }
 
 function buildNewsText(state: AppState, time: string): string {
-  const items = state.news;
+  const items = filterNewsItems(state.news, state.newsFilter);
   if (items.length === 0) {
     return renderDisplayData(buildScrollableContent({
       title: 'News',
       actionBar: time,
-      contentLines: ['Loading news...'],
+      contentLines: state.news.length === 0 ? ['Loading news...'] : ['No news for this filter'],
       scrollPos: 0,
     }));
   }
@@ -1081,12 +1075,18 @@ export async function initGlassesRenderer(): Promise<void> {
     if (t) await hub.sendImage(t.id, t.name, t.bytes);
 
     hub.onEvent((event) => {
+      if (glassAlertToastActive) {
+        const action = mapEvenHubEvent(event, store.getState());
+        if (action?.type === 'SELECT_HIGHLIGHTED') dismissGlassAlertToast();
+        return;
+      }
       const action = mapEvenHubEvent(event, store.getState());
       if (action) store.dispatch(action);
     });
 
     // Now dispatch — subscriber won't rebuild since layout is already 'home'
     store.dispatch({ type: 'APP_INIT' });
+
   }).catch(() => { });
 
   store.subscribe((state, prev) => {

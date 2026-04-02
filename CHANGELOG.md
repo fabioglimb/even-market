@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.6
+
+Released: 2026-04-02
+
+No breaking changes.
+
+### Added
+
+- shared news filtering now stays in sync between webview and glasses
+- alert notifications now support persistent web toasts and click-to-dismiss glasses interrupts
+
+### Changed
+
+- glasses alerts were redesigned into a cleaner multi-column layout with improved unread behavior
+- browser/article synchronization is more reliable when opening news details from glasses
+- this release now consumes `even-toolkit` 1.6.2
+
+### Notes
+
+- alert interrupts on glasses now stay visible until dismissed by click
+
+
 ## 0.1.5
 
 Released: 2026-04-02

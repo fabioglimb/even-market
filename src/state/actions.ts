@@ -34,6 +34,7 @@ export type Action =
   | { type: 'ALERT_TRIGGERED'; alertId: string; triggeredAt: number }
   | { type: 'ALERTS_MARK_SEEN'; seenAt?: number }
   | { type: 'NEWS_LOADED'; news: MarketNewsItem[] }
+  | { type: 'NEWS_FILTER'; filter: 'all' | 'stocks' | 'crypto' }
   | { type: 'NEWS_ARTICLE_LOADING'; newsId: string }
   | { type: 'NEWS_ARTICLE_LOADED'; newsId: string; content: string }
   | { type: 'SELECT_NEWS'; newsId: string };

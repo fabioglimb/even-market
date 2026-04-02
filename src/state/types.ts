@@ -116,6 +116,7 @@ export interface AppState {
   alerts: PriceAlert[];
   news: MarketNewsItem[];
   watchlistFilter: 'all' | AssetType;
+  newsFilter: 'all' | 'stocks' | 'crypto';
   selectedHoldingId: string | null;
   selectedNewsId: string | null;
   selectedNewsContent: string | null;
@@ -160,6 +161,7 @@ export const initialState: AppState = {
   alerts: [],
   news: [],
   watchlistFilter: 'all',
+  newsFilter: 'all',
   selectedHoldingId: null,
   selectedNewsId: null,
   selectedNewsContent: null,

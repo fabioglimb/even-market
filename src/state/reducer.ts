@@ -6,10 +6,15 @@ import { MARKET_LANGUAGES } from '../utils/i18n';
 import { detectAssetType } from '../data/yahoo-finance';
 import type { MarketLanguage } from '../utils/i18n';
 import { markTriggeredAlertsSeen } from './alert-utils';
+import { filterNewsItems } from './news-utils';
 
 export { initialState };
 
 const RESOLUTIONS: ChartResolution[] = ['1', '5', '15', '60', 'D', 'W', 'M'];
+
+function getFilteredNews(state: AppState) {
+  return filterNewsItems(state.news, state.newsFilter);
+}
 
 function withSeenAlertsOnEntry(state: AppState, screen: AppState['screen']): AppState {
   if (screen !== 'alerts') return { ...state, screen, highlightedIndex: 0 };
@@ -125,7 +130,10 @@ export function reduce(state: AppState, action: Action): AppState {
         return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.alerts.length) };
       }
       if (state.screen === 'news' && state.news.length > 0) {
-        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.news.length) };
+        const filteredNews = getFilteredNews(state);
+        if (filteredNews.length > 0) {
+          return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', filteredNews.length) };
+        }
       }
       const next = Math.max(0, Math.min(maxIndex, state.highlightedIndex + delta));
       return { ...state, highlightedIndex: next };
@@ -172,7 +180,7 @@ export function reduce(state: AppState, action: Action): AppState {
         }
       }
       if (state.screen === 'news') {
-        const item = state.news[state.highlightedIndex];
+        const item = getFilteredNews(state)[state.highlightedIndex];
         if (item) {
           return {
             ...state,
@@ -386,6 +394,13 @@ export function reduce(state: AppState, action: Action): AppState {
 
     case 'NEWS_LOADED':
       return { ...state, news: action.news };
+
+    case 'NEWS_FILTER':
+      return {
+        ...state,
+        newsFilter: action.filter,
+        highlightedIndex: state.screen === 'news' ? 0 : state.highlightedIndex,
+      };
 
     case 'NEWS_ARTICLE_LOADING':
       return {

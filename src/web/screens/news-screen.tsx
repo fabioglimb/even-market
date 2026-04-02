@@ -4,6 +4,7 @@ import { IcFeatNews } from 'even-toolkit/web/icons/svg-icons';
 import { fetchMarketNews } from '../../data/news';
 import type { MarketNewsItem } from '../../state/types';
 import { useDispatch, useSelector } from '../hooks/use-store';
+import { filterNewsItems } from '../../state/news-utils';
 
 const FILTER_OPTIONS = ['All', 'Stocks', 'Crypto'];
 
@@ -19,9 +20,9 @@ function NewsScreen({
   const selectedNewsId = useSelector((s) => s.selectedNewsId);
   const selectedNewsContent = useSelector((s) => s.selectedNewsContent);
   const selectedNewsLoading = useSelector((s) => s.selectedNewsLoading);
+  const newsFilter = useSelector((s) => s.newsFilter);
 
   const [loading, setLoading] = useState(news.length === 0);
-  const [filter, setFilter] = useState('All');
 
   const loadNews = useCallback(async () => {
     setLoading(true);
@@ -41,9 +42,7 @@ function NewsScreen({
     if (news.length > 0) setLoading(false);
   }, [news.length]);
 
-  const filtered = filter === 'All'
-    ? news
-    : news.filter((n) => n.category === (filter === 'Stocks' ? 'stocks' : 'crypto'));
+  const filtered = filterNewsItems(news, newsFilter);
 
   const selectedArticle = selectedNewsId
     ? news.find((item) => item.id === selectedNewsId) ?? null
@@ -99,8 +98,8 @@ function NewsScreen({
     <div className="space-y-3">
       <CategoryFilter
         categories={FILTER_OPTIONS}
-        selected={filter}
-        onSelect={setFilter}
+        selected={newsFilter === 'all' ? 'All' : newsFilter === 'stocks' ? 'Stocks' : 'Crypto'}
+        onSelect={(value) => dispatch({ type: 'NEWS_FILTER', filter: value === 'Stocks' ? 'stocks' : value === 'Crypto' ? 'crypto' : 'all' })}
       />
 
       {filtered.length === 0 ? (

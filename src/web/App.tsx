@@ -74,7 +74,6 @@ function App() {
   const unreadAlertCount = getUnreadTriggeredAlertCount(alerts);
   const [toastAlert, setToastAlert] = useState<PriceAlert | null>(null);
   const lastTriggeredAtRef = useRef(0);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const menuItems: SideDrawerItem[] = [
     { id: 'watchlist', label: 'Watchlist', section: 'Market', icon: <IcFeatStocks {...iconProps} /> },
@@ -106,15 +105,6 @@ function App() {
       setToastAlert(latest);
     }
   }, [alerts, webScreen]);
-
-  useEffect(() => {
-    if (!toastAlert) return;
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastAlert(null), 4500);
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-  }, [toastAlert]);
 
   function handleNavigate(screen: string) {
     setDrawerOpen(false);
@@ -193,17 +183,22 @@ function App() {
                 variant="warning"
                 message={`${toastAlert.symbol} ${toastAlert.condition === 'above' ? 'rose above' : 'fell below'} $${formatPrice(toastAlert.targetPrice)}`}
                 action={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setToastAlert(null);
-                      dispatch({ type: 'NAVIGATE', screen: 'alerts' });
-                      setWebScreen('alerts');
-                    }}
-                  >
-                    View
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setToastAlert(null)}>
+                      Dismiss
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setToastAlert(null);
+                        dispatch({ type: 'NAVIGATE', screen: 'alerts' });
+                        setWebScreen('alerts');
+                      }}
+                    >
+                      View
+                    </Button>
+                  </div>
                 }
               />
             </div>
