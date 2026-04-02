@@ -1,6 +1,11 @@
 import type { Store } from '../state/store';
-import type { ChartResolution } from '../state/types';
+import type { ChartResolution, GraphicEntry } from '../state/types';
 import { getQuotes, getCandles, getCandlesByPeriod, resolutionToRange, resolutionToHistoryStep } from './yahoo-finance';
+import { getCryptoQuotes, getCryptoCandles, resolutionToCgDays } from './coingecko';
+import { storageSet } from 'even-toolkit/storage';
+
+const PORTFOLIO_KEY = 'even-market-portfolio';
+const ALERTS_KEY = 'even-market-alerts';
 
 export class Poller {
   private store: Store;
@@ -23,6 +28,14 @@ export class Poller {
       if (state.settings.graphics !== prev.settings.graphics) {
         this.pollQuotes();
       }
+      // Persist portfolio changes
+      if (state.portfolio !== prev.portfolio) {
+        storageSet(PORTFOLIO_KEY, state.portfolio);
+      }
+      // Persist alert changes
+      if (state.alerts !== prev.alerts) {
+        storageSet(ALERTS_KEY, state.alerts);
+      }
     });
   }
 
@@ -35,17 +48,73 @@ export class Poller {
   async pollQuotes(): Promise<void> {
     if (this.disposed) return;
     const state = this.store.getState();
-    const symbols = [...new Set(state.settings.graphics.map((g) => g.symbol))];
+    const graphics = state.settings.graphics;
 
-    if (symbols.length === 0) return;
+    // Split into Yahoo (stock/forex/commodity) and CoinGecko (crypto)
+    const yahooSymbols: string[] = [];
+    const cryptoCoins: Array<{ geckoId: string; symbol: string; quoteCurrency?: string }> = [];
+    const seen = new Set<string>();
 
-    try {
-      const quotes = await getQuotes(symbols);
-      if (!this.disposed && Object.keys(quotes).length > 0) {
-        this.store.dispatch({ type: 'QUOTES_UPDATED', quotes });
+    for (const g of graphics) {
+      if (seen.has(g.symbol)) continue;
+      seen.add(g.symbol);
+
+      if (g.assetType === 'crypto' && g.geckoId) {
+        cryptoCoins.push({ geckoId: g.geckoId, symbol: g.symbol, quoteCurrency: g.quoteCurrency });
+      } else {
+        yahooSymbols.push(g.symbol);
       }
-    } catch (err) {
-      void err;
+    }
+
+    // Also include portfolio holdings that aren't in the watchlist
+    for (const h of state.portfolio) {
+      if (seen.has(h.symbol)) continue;
+      seen.add(h.symbol);
+      if (h.assetType === 'crypto' && h.geckoId) {
+        cryptoCoins.push({ geckoId: h.geckoId, symbol: h.symbol, quoteCurrency: h.quoteCurrency });
+      } else {
+        yahooSymbols.push(h.symbol);
+      }
+    }
+
+    if (yahooSymbols.length === 0 && cryptoCoins.length === 0) return;
+
+    // Fetch Yahoo and CoinGecko in parallel
+    const [yahooQuotes, cryptoQuotesResult] = await Promise.all([
+      yahooSymbols.length > 0
+        ? getQuotes(yahooSymbols).catch(() => ({} as Record<string, import('../state/types').StockQuote>))
+        : Promise.resolve({} as Record<string, import('../state/types').StockQuote>),
+      cryptoCoins.length > 0
+        ? getCryptoQuotes(cryptoCoins).catch(() => ({} as Record<string, import('../state/types').StockQuote>))
+        : Promise.resolve({} as Record<string, import('../state/types').StockQuote>),
+    ]);
+
+    const merged = { ...yahooQuotes, ...cryptoQuotesResult };
+
+    if (!this.disposed && Object.keys(merged).length > 0) {
+      this.store.dispatch({ type: 'QUOTES_UPDATED', quotes: merged });
+      this.checkAlerts(merged);
+    }
+  }
+
+  private checkAlerts(quotes: Record<string, import('../state/types').StockQuote>): void {
+    const state = this.store.getState();
+    for (const alert of state.alerts) {
+      if (alert.triggered) continue;
+      const quote = quotes[alert.symbol];
+      if (!quote) continue;
+
+      const shouldTrigger =
+        (alert.condition === 'above' && quote.price >= alert.targetPrice) ||
+        (alert.condition === 'below' && quote.price <= alert.targetPrice);
+
+      if (shouldTrigger) {
+        this.store.dispatch({
+          type: 'ALERT_TRIGGERED',
+          alertId: alert.id,
+          triggeredAt: Date.now(),
+        });
+      }
     }
   }
 
@@ -54,21 +123,34 @@ export class Poller {
     const state = this.store.getState();
     const res = resolution ?? 'D';
 
-    // Check cache — key is "symbol:resolution"
+    // Check cache
     const cacheKey = `${symbol}:${res}`;
     if (state.candlesCacheKey === cacheKey && Date.now() - state.candlesCacheTime < 60_000) {
       return;
     }
 
+    // Determine if this is a crypto symbol
+    const graphic = state.settings.graphics.find(
+      (g) => g.symbol === symbol,
+    );
+
     this.store.dispatch({ type: 'LOADING', loading: true });
+
     try {
-      const range = resolutionToRange(res);
-      const candles = await getCandles(symbol, res, range);
+      let candles: import('../state/types').Candle[];
+
+      if (graphic?.assetType === 'crypto' && graphic.geckoId) {
+        const days = resolutionToCgDays(res);
+        candles = await getCryptoCandles(graphic.geckoId, days, graphic.quoteCurrency);
+      } else {
+        const range = resolutionToRange(res);
+        candles = await getCandles(symbol, res, range);
+      }
+
       if (!this.disposed) {
         this.store.dispatch({ type: 'CANDLES_LOADED', symbol, resolution: res, candles });
       }
-    } catch (err) {
-      void err;
+    } catch {
       this.store.dispatch({ type: 'LOADING', loading: false });
     }
   }
@@ -77,6 +159,14 @@ export class Poller {
     if (this.disposed) return;
     const state = this.store.getState();
     if (state.candles.length === 0) return;
+
+    // For crypto, older candles are not well-supported via CoinGecko OHLC,
+    // so we only do this for Yahoo-backed symbols
+    const graphic = state.settings.graphics.find((g) => g.symbol === symbol);
+    if (graphic?.assetType === 'crypto') {
+      // CoinGecko doesn't support period-based OHLC fetch; skip
+      return;
+    }
 
     const earliestTime = state.candles[0]!.time;
     const step = resolutionToHistoryStep(resolution);
@@ -89,8 +179,7 @@ export class Poller {
       if (!this.disposed) {
         this.store.dispatch({ type: 'CANDLES_PREPEND', candles });
       }
-    } catch (err) {
-      void err;
+    } catch {
       this.store.dispatch({ type: 'LOADING', loading: false });
     }
   }

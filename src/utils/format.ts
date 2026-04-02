@@ -35,6 +35,11 @@ export function formatCandleTime(timestamp: number, _resolution?: ChartResolutio
   return `${mm}/${dd}/${yy} ${hh}:${min}`;
 }
 
+/** Strip Yahoo suffixes (=X, =F) for display */
+export function displaySymbol(symbol: string): string {
+  return symbol.replace(/=X$/, '').replace(/=F$/, '');
+}
+
 export function formatResolutionShort(res: ChartResolution): string {
   switch (res) {
     case '1': return 'M1';

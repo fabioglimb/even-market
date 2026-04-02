@@ -32,6 +32,27 @@ const COMMODITY_MAP: Record<string, string> = {
   'PALLADIUM': 'PA=F',
 };
 
+import type { AssetType } from '../state/types';
+
+/** Detect asset type from symbol or Yahoo search result typeDisp */
+export function detectAssetType(symbol: string, typeDisp?: string): AssetType {
+  const upper = symbol.toUpperCase().replace(/=X$/, '').replace(/=F$/, '');
+  // Check commodity map
+  if (COMMODITY_MAP[upper] || symbol.endsWith('=F')) return 'commodity';
+  // Check forex
+  if (FOREX_PAIRS.has(upper) || symbol.endsWith('=X')) return 'forex';
+  // 6-char all-alpha is likely forex
+  if (upper.length === 6 && /^[A-Z]{6}$/.test(upper) && !COMMODITY_MAP[upper]) return 'forex';
+  // Check Yahoo typeDisp
+  if (typeDisp) {
+    const t = typeDisp.toLowerCase();
+    if (t.includes('currency') || t.includes('forex') || t.includes('fx')) return 'forex';
+    if (t.includes('commodity') || t.includes('future')) return 'commodity';
+    if (t.includes('crypto')) return 'crypto';
+  }
+  return 'stock';
+}
+
 /** Convert user-facing symbol to Yahoo Finance ticker */
 function toYahooSymbol(symbol: string): string {
   const upper = symbol.toUpperCase();
@@ -272,6 +293,33 @@ export function resolutionToHistoryStep(resolution: string): number {
 }
 
 /** Map our chart resolution to a sensible Yahoo range. */
+export interface YahooSearchResult {
+  symbol: string;
+  shortname: string;
+  longname?: string;
+  exchDisp?: string;
+  typeDisp?: string;
+}
+
+/** Search Yahoo Finance for stocks, ETFs, forex, commodities */
+export async function searchSymbols(query: string): Promise<YahooSearchResult[]> {
+  if (query.length < 1) return [];
+  try {
+    const res = await fetch(`${BASE_URL}/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=15&newsCount=0`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.quotes ?? []).map((q: any) => ({
+      symbol: q.symbol ?? '',
+      shortname: q.shortname ?? q.symbol ?? '',
+      longname: q.longname,
+      exchDisp: q.exchDisp,
+      typeDisp: q.typeDisp,
+    })).filter((r: YahooSearchResult) => r.symbol);
+  } catch {
+    return [];
+  }
+}
+
 export function resolutionToRange(resolution: string): string {
   switch (resolution) {
     case '1': return '1d';

@@ -3,6 +3,7 @@ import { initialState, makeGraphicId } from './types';
 import type { Action } from './actions';
 import { wrapIndex } from 'even-toolkit/glass-nav';
 import { MARKET_LANGUAGES } from '../utils/i18n';
+import { detectAssetType } from '../data/yahoo-finance';
 import type { MarketLanguage } from '../utils/i18n';
 
 export { initialState };
@@ -51,6 +52,24 @@ export function reduce(state: AppState, action: Action): AppState {
       if (state.screen === 'watchlist') {
         return { ...state, screen: 'home', highlightedIndex: 0 };
       }
+      if (state.screen === 'portfolio') {
+        return { ...state, screen: 'home', highlightedIndex: 0 };
+      }
+      if (state.screen === 'holding-detail') {
+        return { ...state, screen: 'portfolio', selectedHoldingId: null, highlightedIndex: 0 };
+      }
+      if (state.screen === 'holding-form') {
+        return { ...state, screen: 'portfolio', highlightedIndex: 0 };
+      }
+      if (state.screen === 'alerts') {
+        return { ...state, screen: 'home', highlightedIndex: 0 };
+      }
+      if (state.screen === 'overview') {
+        return { ...state, screen: 'home', highlightedIndex: 0 };
+      }
+      if (state.screen === 'news') {
+        return { ...state, screen: 'home', highlightedIndex: 0 };
+      }
       return state;
     }
 
@@ -74,8 +93,8 @@ export function reduce(state: AppState, action: Action): AppState {
       const maxIndex = getMaxIndex(state);
       const delta = action.direction === 'down' ? 1 : -1;
       if (state.screen === 'home') {
-        // Home: 0=Watchlist, 1=Settings — wrap
-        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', 2) };
+        // Home: 0=Watchlist, 1=Portfolio, 2=Overview, 3=Alerts, 4=News, 5=Settings
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', 6) };
       }
       if (state.screen === 'watchlist') {
         // Wrap within graphics
@@ -87,12 +106,9 @@ export function reduce(state: AppState, action: Action): AppState {
 
     case 'SELECT_HIGHLIGHTED': {
       if (state.screen === 'home') {
-        if (state.highlightedIndex === 0) {
-          return { ...state, screen: 'watchlist', highlightedIndex: 0 };
-        }
-        if (state.highlightedIndex === 1) {
-          return { ...state, screen: 'settings', highlightedIndex: 0 };
-        }
+        const homeScreens = ['watchlist', 'portfolio', 'overview', 'alerts', 'news', 'settings'] as const;
+        const target = homeScreens[state.highlightedIndex];
+        if (target) return { ...state, screen: target, highlightedIndex: 0 };
       }
       if (state.screen === 'watchlist') {
         const graphics = state.settings.graphics;
@@ -180,7 +196,14 @@ export function reduce(state: AppState, action: Action): AppState {
       const sym = action.symbol.toUpperCase().trim();
       const id = makeGraphicId(sym, action.resolution);
       if (!sym || state.settings.graphics.some((g) => g.id === id)) return state;
-      const newGraphic = { id, symbol: sym, resolution: action.resolution };
+      const newGraphic: import('./types').GraphicEntry = {
+        id,
+        symbol: sym,
+        resolution: action.resolution,
+        assetType: action.assetType,
+        geckoId: action.geckoId,
+        quoteCurrency: action.quoteCurrency,
+      };
       return {
         ...state,
         settings: {
@@ -219,8 +242,17 @@ export function reduce(state: AppState, action: Action): AppState {
     case 'CANDLE_FLASH_TICK':
       return { ...state, candleFlashPhase: !state.candleFlashPhase };
 
-    case 'SETTINGS_LOADED':
-      return { ...state, settings: { ...state.settings, ...action.settings } };
+    case 'SETTINGS_LOADED': {
+      const loaded = { ...state.settings, ...action.settings };
+      // Always re-detect assetType from symbol (fixes wrongly tagged items)
+      if (loaded.graphics) {
+        loaded.graphics = loaded.graphics.map((g) => ({
+          ...g,
+          assetType: detectAssetType(g.symbol),
+        }));
+      }
+      return { ...state, settings: loaded };
+    }
 
     case 'SETTING_CHANGE': {
       const key = action.key as keyof typeof state.settings;
@@ -241,6 +273,53 @@ export function reduce(state: AppState, action: Action): AppState {
 
     case 'LOADING':
       return { ...state, loading: action.loading };
+
+    case 'WATCHLIST_FILTER':
+      return { ...state, watchlistFilter: action.filter };
+
+    case 'PORTFOLIO_LOADED':
+      return { ...state, portfolio: action.portfolio };
+
+    case 'HOLDING_ADD':
+      return { ...state, portfolio: [...state.portfolio, action.holding] };
+
+    case 'HOLDING_UPDATE': {
+      const updated = state.portfolio.map((h) =>
+        h.id === action.holding.id ? action.holding : h,
+      );
+      return { ...state, portfolio: updated };
+    }
+
+    case 'HOLDING_REMOVE':
+      return {
+        ...state,
+        portfolio: state.portfolio.filter((h) => h.id !== action.holdingId),
+        selectedHoldingId: state.selectedHoldingId === action.holdingId ? null : state.selectedHoldingId,
+      };
+
+    case 'SELECT_HOLDING':
+      return {
+        ...state,
+        screen: 'holding-detail',
+        selectedHoldingId: action.holdingId,
+        highlightedIndex: 0,
+      };
+
+    case 'ALERTS_LOADED':
+      return { ...state, alerts: action.alerts };
+
+    case 'ALERT_ADD':
+      return { ...state, alerts: [...state.alerts, action.alert] };
+
+    case 'ALERT_REMOVE':
+      return { ...state, alerts: state.alerts.filter((a) => a.id !== action.alertId) };
+
+    case 'ALERT_TRIGGERED': {
+      const updatedAlerts = state.alerts.map((a) =>
+        a.id === action.alertId ? { ...a, triggered: true, triggeredAt: action.triggeredAt } : a,
+      );
+      return { ...state, alerts: updatedAlerts };
+    }
 
     default:
       return state;

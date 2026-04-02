@@ -17,7 +17,7 @@ import { formatPrice, formatPercent, formatVolume, formatResolutionShort, format
 import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
 import { Poller } from '../data/poller';
-import { storageSet, storageGetSync } from 'even-toolkit/storage';
+import { storageSet, storageGet } from 'even-toolkit/storage';
 
 type PageLayout = PageMode;
 
@@ -244,13 +244,19 @@ function padL(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
 }
 
-/** Home screen text (below chart image tiles): ER Market + Watchlist/Settings buttons. */
+/** Home screen text (below chart image tiles): ER Market + menu buttons. */
 function buildHomeText(state: AppState): string {
   const lang = state.settings.language;
   const hi = state.highlightedIndex;
-  const wlCursor = hi === 0 ? '\u25B6 ' : '  ';
-  const setCursor = hi === 1 ? '\u25B6 ' : '  ';
-  return `\n${wlCursor}${t('home.watchlist', lang)}\n${setCursor}${t('home.settings', lang)}`;
+  const items = [
+    t('home.watchlist', lang),
+    'Portfolio',
+    'Overview',
+    'Alerts',
+    'News',
+    t('home.settings', lang),
+  ];
+  return '\n' + items.map((label, i) => `${i === hi ? '\u25B6 ' : '  '}${label}`).join('\n');
 }
 
 /** Build 3 column strings for the watchlist (symbol, price, percent). */
@@ -519,11 +525,11 @@ function migrateOldSettings(raw: string): Record<string, unknown> {
   return settings;
 }
 
-function loadSettings(): void {
+async function loadSettings(): Promise<void> {
   try {
-    const raw = localStorage.getItem('even-market-settings');
-    if (raw) {
-      const settings = migrateOldSettings(raw);
+    const stored = await storageGet<Record<string, unknown> | null>('even-market-settings', null);
+    if (stored) {
+      const settings = migrateOldSettings(JSON.stringify(stored));
       store.dispatch({ type: 'SETTINGS_LOADED', settings });
       storageSet('even-market-settings', store.getState().settings);
     }
@@ -543,7 +549,7 @@ export async function initGlassesRenderer(): Promise<void> {
 
   store = createStore();
   poller = new Poller(store);
-  loadSettings();
+  await loadSettings();
 
   const sdkHub = new EvenHubBridge();
   sdkHub.init().then(async () => {

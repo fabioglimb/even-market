@@ -1,6 +1,19 @@
 import type { MarketLanguage } from '../utils/i18n';
 
-export type Screen = 'splash' | 'home' | 'watchlist' | 'stock-detail' | 'settings';
+export type Screen =
+  | 'splash'
+  | 'home'
+  | 'watchlist'
+  | 'stock-detail'
+  | 'settings'
+  | 'portfolio'
+  | 'holding-detail'
+  | 'holding-form'
+  | 'alerts'
+  | 'overview'
+  | 'news';
+
+export type AssetType = 'stock' | 'crypto' | 'forex' | 'commodity';
 
 export interface StockQuote {
   symbol: string;
@@ -31,10 +44,35 @@ export interface GraphicEntry {
   id: string;
   symbol: string;
   resolution: ChartResolution;
+  assetType?: AssetType;
+  geckoId?: string;
+  quoteCurrency?: string;
 }
 
 export function makeGraphicId(symbol: string, resolution: ChartResolution): string {
   return `${symbol}:${resolution}`;
+}
+
+export interface PortfolioHolding {
+  id: string;
+  symbol: string;
+  assetType: AssetType;
+  quantity: number;
+  avgCost: number;
+  geckoId?: string;
+  quoteCurrency?: string;
+  addedAt: number;
+}
+
+export interface PriceAlert {
+  id: string;
+  symbol: string;
+  assetType: AssetType;
+  condition: 'above' | 'below';
+  targetPrice: number;
+  triggered: boolean;
+  createdAt: number;
+  triggeredAt?: number;
 }
 
 export interface Settings {
@@ -61,14 +99,20 @@ export interface AppState {
   connectionStatus: 'connected' | 'connecting' | 'disconnected';
   lastError: string | null;
   loading: boolean;
+  portfolio: PortfolioHolding[];
+  alerts: PriceAlert[];
+  watchlistFilter: 'all' | AssetType;
+  selectedHoldingId: string | null;
 }
 
 export const DEFAULT_GRAPHICS: GraphicEntry[] = [
-  { id: 'AAPL:D', symbol: 'AAPL', resolution: 'D' },
-  { id: 'GOOGL:D', symbol: 'GOOGL', resolution: 'D' },
-  { id: 'MSFT:D', symbol: 'MSFT', resolution: 'D' },
-  { id: 'NVDA:D', symbol: 'NVDA', resolution: 'D' },
-  { id: 'TSLA:D', symbol: 'TSLA', resolution: 'D' },
+  { id: 'AAPL:D', symbol: 'AAPL', resolution: 'D', assetType: 'stock' },
+  { id: 'GOOGL:D', symbol: 'GOOGL', resolution: 'D', assetType: 'stock' },
+  { id: 'MSFT:D', symbol: 'MSFT', resolution: 'D', assetType: 'stock' },
+  { id: 'NVDA:D', symbol: 'NVDA', resolution: 'D', assetType: 'stock' },
+  { id: 'TSLA:D', symbol: 'TSLA', resolution: 'D', assetType: 'stock' },
+  { id: 'BTC:D', symbol: 'BTC', resolution: 'D', assetType: 'crypto', geckoId: 'bitcoin', quoteCurrency: 'usd' },
+  { id: 'ETH:D', symbol: 'ETH', resolution: 'D', assetType: 'crypto', geckoId: 'ethereum', quoteCurrency: 'usd' },
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -95,4 +139,8 @@ export const initialState: AppState = {
   connectionStatus: 'disconnected',
   lastError: null,
   loading: false,
+  portfolio: [],
+  alerts: [],
+  watchlistFilter: 'all',
+  selectedHoldingId: null,
 };
