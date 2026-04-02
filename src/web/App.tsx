@@ -3,6 +3,7 @@ import type { Screen } from '../state/types';
 import { useSelector, useDispatch } from './hooks/use-store';
 import { SideDrawer, DrawerTrigger, NavHeader, Button } from 'even-toolkit/web';
 import type { SideDrawerItem } from 'even-toolkit/web';
+import { IcMenuHome, IcEditSettings, IcChevronBack } from 'even-toolkit/web/icons/svg-icons';
 import { WatchlistScreen } from './screens/watchlist-screen';
 import { ChartScreen } from './screens/chart-screen';
 import { SettingsScreen } from './screens/settings-screen';
@@ -10,12 +11,14 @@ import { HowItWorksScreen } from './screens/how-it-works-screen';
 
 type WebScreen = Screen | 'how-it-works';
 
+const iconProps = { width: 18, height: 18, className: 'text-current' };
+
 const MENU_ITEMS: SideDrawerItem[] = [
-  { id: 'watchlist', label: 'Watchlist', section: 'Market' },
+  { id: 'watchlist', label: 'Watchlist', section: 'Market', icon: <IcMenuHome {...iconProps} /> },
 ];
 
 const BOTTOM_ITEMS: SideDrawerItem[] = [
-  { id: 'settings', label: 'Settings', section: 'App' },
+  { id: 'settings', label: 'Settings', section: 'App', icon: <IcEditSettings {...iconProps} /> },
 ];
 
 // Screens accessible from the drawer menu
@@ -33,11 +36,6 @@ function getScreenTitle(screen: WebScreen): string {
   }
 }
 
-const BACK_ICON = (
-  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
 
 function App() {
   const dispatch = useDispatch();
@@ -82,7 +80,7 @@ function App() {
           <NavHeader
             title={getScreenTitle(webScreen)}
             left={isNested
-              ? <Button variant="ghost" size="icon" onClick={handleBack}>{BACK_ICON}</Button>
+              ? <Button variant="ghost" size="icon" onClick={handleBack}><IcChevronBack width={16} height={16} /></Button>
               : <DrawerTrigger onClick={() => setDrawerOpen(true)} />
             }
           />

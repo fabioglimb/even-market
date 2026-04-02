@@ -7,22 +7,27 @@
 import { initGlassesRenderer, getStore, getPoller } from './glass/bootstrap';
 import { initWebUI } from './web/main';
 import { bindKeyboard } from './input/keyboard';
+import { hydrateFromSDK } from 'even-toolkit/storage';
 
-async function boot(): Promise<void> {
-  // Initialize glasses renderer (also creates the store)
-  await initGlassesRenderer();
+const STORAGE_KEYS = ['even-market-settings', 'even-market-splash-candles'];
 
-  const store = getStore();
-  const poller = getPoller();
+hydrateFromSDK(STORAGE_KEYS).finally(() => {
+  async function boot(): Promise<void> {
+    // Initialize glasses renderer (also creates the store)
+    await initGlassesRenderer();
 
-  // Boot web UI
-  initWebUI(store, poller);
+    const store = getStore();
+    const poller = getPoller();
 
-  // Bind keyboard for web dev testing
-  bindKeyboard(store);
-}
+    // Boot web UI
+    initWebUI(store, poller);
 
-boot().catch((err) => {
-  const app = document.getElementById('app');
-  if (app) app.textContent = 'Failed to initialize app: ' + String(err);
+    // Bind keyboard for web dev testing
+    bindKeyboard(store);
+  }
+
+  boot().catch((err) => {
+    const app = document.getElementById('app');
+    if (app) app.textContent = 'Failed to initialize app: ' + String(err);
+  });
 });

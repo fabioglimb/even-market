@@ -17,6 +17,7 @@ import { formatPrice, formatPercent, formatVolume, formatResolutionShort, format
 import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
 import { Poller } from '../data/poller';
+import { storageSet, storageGetSync } from 'even-toolkit/storage';
 
 type PageLayout = PageMode;
 
@@ -29,7 +30,7 @@ function saveSplashCandles(candles: { open: number; high: number; low: number; c
     const slice = candles.slice(-16).map((c) => ({
       open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
     }));
-    localStorage.setItem(SPLASH_CANDLES_KEY, JSON.stringify(slice));
+    storageSet(SPLASH_CANDLES_KEY, slice);
   } catch { /* ignore */ }
 }
 
@@ -483,9 +484,7 @@ function handleSideEffects(state: AppState, prev: AppState): void {
   }
 
   if (state.settings !== prev.settings) {
-    try {
-      localStorage.setItem('even-market-settings', JSON.stringify(state.settings));
-    } catch { /* ignore */ }
+    storageSet('even-market-settings', state.settings);
   }
 
   // Persist candles for splash screen
@@ -526,7 +525,7 @@ function loadSettings(): void {
     if (raw) {
       const settings = migrateOldSettings(raw);
       store.dispatch({ type: 'SETTINGS_LOADED', settings });
-      localStorage.setItem('even-market-settings', JSON.stringify(store.getState().settings));
+      storageSet('even-market-settings', store.getState().settings);
     }
   } catch { /* use defaults */ }
 }
