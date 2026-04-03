@@ -1,10 +1,7 @@
 import type { StockQuote, Candle } from '../state/types';
 
-// In dev/Vercel: relative path handled by Vite middleware or Vercel rewrite
-// In .ehpk: absolute URL to Vercel deployment (serves as CORS proxy)
-const BASE_URL = import.meta.env.VITE_EHPK
-  ? 'https://even-market.vercel.app/yf-api'
-  : '/yf-api';
+// Always use the hosted Vercel proxy so QR/dev and packaged builds hit the same endpoint.
+const BASE_URL = 'https://even-market.vercel.app/yf-api';
 
 // Forex pairs that need =X suffix on Yahoo Finance
 // Forex pairs that use =X suffix on Yahoo Finance

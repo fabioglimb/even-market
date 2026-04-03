@@ -11,6 +11,7 @@ No breaking changes.
 - the app now uses `even-toolkit` 1.6.3 for centered nav headers and shared bridge-only storage
 - stock quote loading now uses Yahoo `v8/finance/chart` instead of the blocked quote endpoint
 - navbar titles and drawer labels now update immediately when the market app language changes
+- QR/dev and packaged builds now use the same hosted Yahoo proxy endpoint
 
 ### Notes
 

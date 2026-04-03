@@ -1,8 +1,6 @@
 import type { MarketNewsItem } from '../state/types';
 
-const YF_PROXY = import.meta.env.VITE_EHPK
-  ? 'https://even-market.vercel.app/yf-api'
-  : '/yf-api';
+const YF_PROXY = 'https://even-market.vercel.app/yf-api';
 const BROWSE_PROXY = 'https://even-browser.vercel.app/__browse_proxy';
 
 function formatTimeAgo(dateStr?: string | null): string {
