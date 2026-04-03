@@ -16,34 +16,31 @@ import { OverviewScreen } from './screens/overview-screen';
 import { NewsScreen } from './screens/news-screen';
 import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount } from '../state/alert-utils';
 import { formatPrice } from '../utils/format';
+import { t } from '../utils/i18n';
 
 type WebScreen = Screen | 'how-it-works' | 'news-detail';
 
 const iconProps = { width: 18, height: 18, className: 'text-current' };
 
-const BOTTOM_ITEMS: SideDrawerItem[] = [
-  { id: 'settings', label: 'Settings', icon: <IcEditSettings {...iconProps} /> },
-];
-
 // Screens accessible from the drawer menu
 const TOP_LEVEL_SCREENS = new Set(['splash', 'home', 'watchlist', 'settings', 'portfolio', 'alerts', 'overview', 'news']);
 
-function getScreenTitle(screen: WebScreen): string {
+function getScreenTitle(screen: WebScreen, lang: import('../utils/i18n').MarketLanguage): string {
   switch (screen) {
     case 'splash':
     case 'home':
-    case 'watchlist': return 'ER Market';
-    case 'stock-detail': return 'Stock';
-    case 'settings': return 'Settings';
-    case 'how-it-works': return 'How It Works';
-    case 'portfolio': return 'Portfolio';
-    case 'holding-detail': return 'Holding';
-    case 'holding-form': return 'Add Holding';
-    case 'alerts': return 'Alerts';
-    case 'overview': return 'Overview';
-    case 'news': return 'News';
-    case 'news-detail': return 'Article';
-    default: return 'ER Market';
+    case 'watchlist': return t('web.title', lang);
+    case 'stock-detail': return t('web.stock', lang);
+    case 'settings': return t('web.settings', lang);
+    case 'how-it-works': return t('web.howItWorks', lang);
+    case 'portfolio': return t('web.portfolio', lang);
+    case 'holding-detail': return t('web.holding', lang);
+    case 'holding-form': return t('web.addHolding', lang);
+    case 'alerts': return t('web.alerts', lang);
+    case 'overview': return t('web.overview', lang);
+    case 'news': return t('web.news', lang);
+    case 'news-detail': return t('web.article', lang);
+    default: return t('web.title', lang);
   }
 }
 
@@ -61,6 +58,7 @@ function getBackScreen(screen: WebScreen): Screen {
 function App() {
   const dispatch = useDispatch();
   const storeScreen = useSelector((s) => s.screen);
+  const lang = useSelector((s) => s.settings.language);
   const alerts = useSelector((s) => s.alerts);
   const [webScreen, setWebScreen] = useState<WebScreen>(storeScreen);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -75,12 +73,16 @@ function App() {
   const [toastAlert, setToastAlert] = useState<PriceAlert | null>(null);
   const lastTriggeredAtRef = useRef(0);
 
+  const bottomItems: SideDrawerItem[] = [
+    { id: 'settings', label: t('web.settings', lang), icon: <IcEditSettings {...iconProps} /> },
+  ];
+
   const menuItems: SideDrawerItem[] = [
-    { id: 'watchlist', label: 'Watchlist', section: 'Market', icon: <IcFeatStocks {...iconProps} /> },
-    { id: 'overview', label: 'Overview', section: 'Market', icon: <IcFeatLearnExplore {...iconProps} /> },
-    { id: 'portfolio', label: 'Portfolio', section: 'Market', icon: <IcEditChecklist {...iconProps} /> },
-    { id: 'alerts', label: unreadAlertCount > 0 ? `Alerts (${unreadAlertCount})` : 'Alerts', section: 'Market', icon: <IcFeatNotification {...iconProps} /> },
-    { id: 'news', label: 'News', section: 'Market', icon: <IcFeatNews {...iconProps} /> },
+    { id: 'watchlist', label: t('web.watchlist', lang), section: t('web.marketSection', lang), icon: <IcFeatStocks {...iconProps} /> },
+    { id: 'overview', label: t('web.overview', lang), section: t('web.marketSection', lang), icon: <IcFeatLearnExplore {...iconProps} /> },
+    { id: 'portfolio', label: t('web.portfolio', lang), section: t('web.marketSection', lang), icon: <IcEditChecklist {...iconProps} /> },
+    { id: 'alerts', label: unreadAlertCount > 0 ? `${t('web.alerts', lang)} (${unreadAlertCount})` : t('web.alerts', lang), section: t('web.marketSection', lang), icon: <IcFeatNotification {...iconProps} /> },
+    { id: 'news', label: t('web.news', lang), section: t('web.marketSection', lang), icon: <IcFeatNews {...iconProps} /> },
   ];
 
   useEffect(() => {
@@ -133,13 +135,13 @@ function App() {
       onNavigate={handleNavigate}
       activeId={webScreen}
       items={menuItems}
-      bottomItems={BOTTOM_ITEMS}
-      title="ER Market"
+      bottomItems={bottomItems}
+      title={t('web.title', lang)}
     >
       <div className="relative flex flex-col h-full">
         <div className="shrink-0">
           <NavHeader
-            title={getScreenTitle(webScreen)}
+            title={getScreenTitle(webScreen, lang)}
             left={isNested
               ? <Button variant="ghost" size="icon" onClick={handleBack}><IcChevronBack width={16} height={16} /></Button>
               : <DrawerTrigger onClick={() => setDrawerOpen(true)} />

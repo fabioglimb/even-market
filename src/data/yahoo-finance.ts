@@ -70,41 +70,14 @@ function fromYahooSymbol(yahooSymbol: string, requestedSymbol: string): string {
 }
 
 /**
- * Fetch a batch of quotes using the v7 quote endpoint.
- * Falls back to fetching individually via chart endpoint if blocked.
+ * Fetch quotes via the v8 chart endpoint.
+ * Yahoo's v7 quote endpoint is intermittently blocked in the hosted release proxy.
  */
 export async function getQuotes(symbols: string[]): Promise<Record<string, StockQuote>> {
   const results: Record<string, StockQuote> = {};
 
-  // Build mapping: userSymbol → yahooSymbol
-  const yahooSymbols = symbols.map(toYahooSymbol);
-  const yahooToUser: Record<string, string> = {};
-  for (let i = 0; i < symbols.length; i++) {
-    yahooToUser[yahooSymbols[i]!] = symbols[i]!;
-  }
-
-  // Try batch via v7 first
-  try {
-    const url = `${BASE_URL}/v7/finance/quote?symbols=${yahooSymbols.map(encodeURIComponent).join(',')}`;
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
-      const quotes = data?.quoteResponse?.result;
-      if (Array.isArray(quotes)) {
-        for (const q of quotes) {
-          const userSym = yahooToUser[q.symbol] ?? q.symbol;
-          results[userSym] = mapQuote(q, userSym);
-        }
-        return results;
-      }
-    }
-  } catch {
-    // v7 blocked (CORS etc.) — fall through to per-symbol chart
-  }
-
-  // Fallback: fetch each symbol via chart endpoint (more CORS-friendly)
   const promises = symbols.map(async (sym) => {
-    const quote = await getQuoteViaChart(sym);
+    const quote = await getQuoteViaV8Chart(sym);
     if (quote) results[sym] = quote;
   });
   await Promise.all(promises);
@@ -114,7 +87,7 @@ export async function getQuotes(symbols: string[]): Promise<Record<string, Stock
 /**
  * Get a single quote by pulling the latest from the chart endpoint.
  */
-async function getQuoteViaChart(symbol: string): Promise<StockQuote | null> {
+async function getQuoteViaV8Chart(symbol: string): Promise<StockQuote | null> {
   try {
     const yahooSym = toYahooSymbol(symbol);
     const url = `${BASE_URL}/v8/finance/chart/${encodeURIComponent(yahooSym)}?range=1d&interval=5m`;
@@ -146,23 +119,6 @@ async function getQuoteViaChart(symbol: string): Promise<StockQuote | null> {
     void err;
     return null;
   }
-}
-
-function mapQuote(q: any, userSymbol?: string): StockQuote {
-  const price = q.regularMarketPrice ?? 0;
-  const prevClose = q.regularMarketPreviousClose ?? price;
-  return {
-    symbol: userSymbol ?? q.symbol,
-    price,
-    change: q.regularMarketChange ?? price - prevClose,
-    changePercent: q.regularMarketChangePercent ?? (prevClose ? ((price - prevClose) / prevClose) * 100 : 0),
-    high: q.regularMarketDayHigh ?? 0,
-    low: q.regularMarketDayLow ?? 0,
-    open: q.regularMarketOpen ?? prevClose,
-    volume: q.regularMarketVolume ?? 0,
-    previousClose: prevClose,
-    timestamp: (q.regularMarketTime ?? 0) * 1000,
-  };
 }
 
 /**

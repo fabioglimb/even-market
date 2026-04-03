@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.7
+
+Released: 2026-04-03
+
+No breaking changes.
+
+### Changed
+
+- the app now uses `even-toolkit` 1.6.3 for centered nav headers and shared bridge-only storage
+- stock quote loading now uses Yahoo `v8/finance/chart` instead of the blocked quote endpoint
+- navbar titles and drawer labels now update immediately when the market app language changes
+
+### Notes
+
+- this release is intended to verify the published toolkit package in the actual app
+
 ## 0.1.6
 
 Released: 2026-04-02

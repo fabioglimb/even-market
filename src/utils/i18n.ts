@@ -107,6 +107,42 @@ const translations: Record<string, Record<MarketLanguage, string>> = {
     en: 'Settings', it: 'Impostazioni', es: 'Ajustes', fr: 'Parametres', de: 'Einstellungen',
     pt: 'Configuracoes', ja: '設定', zh: '设置', ko: '설정', ru: 'Настройки',
   },
+  'web.marketSection': {
+    en: 'Market', it: 'Mercato', es: 'Mercado', fr: 'Marche', de: 'Markt',
+    pt: 'Mercado', ja: '市場', zh: '市场', ko: '시장', ru: 'Рынок',
+  },
+  'web.overview': {
+    en: 'Overview', it: 'Panoramica', es: 'Resumen', fr: 'Apercu', de: 'Ubersicht',
+    pt: 'Visao geral', ja: '概要', zh: '概览', ko: '개요', ru: 'Обзор',
+  },
+  'web.portfolio': {
+    en: 'Portfolio', it: 'Portafoglio', es: 'Cartera', fr: 'Portefeuille', de: 'Portfolio',
+    pt: 'Portfolio', ja: 'ポートフォリオ', zh: '投资组合', ko: '포트폴리오', ru: 'Портфель',
+  },
+  'web.alerts': {
+    en: 'Alerts', it: 'Avvisi', es: 'Alertas', fr: 'Alertes', de: 'Warnungen',
+    pt: 'Alertas', ja: 'アラート', zh: '提醒', ko: '알림', ru: 'Оповещения',
+  },
+  'web.news': {
+    en: 'News', it: 'Notizie', es: 'Noticias', fr: 'Actualites', de: 'Nachrichten',
+    pt: 'Noticias', ja: 'ニュース', zh: '新闻', ko: '뉴스', ru: 'Новости',
+  },
+  'web.stock': {
+    en: 'Stock', it: 'Titolo', es: 'Accion', fr: 'Titre', de: 'Aktie',
+    pt: 'Acao', ja: '銘柄', zh: '股票', ko: '종목', ru: 'Акция',
+  },
+  'web.holding': {
+    en: 'Holding', it: 'Posizione', es: 'Posicion', fr: 'Position', de: 'Position',
+    pt: 'Posicao', ja: '保有', zh: '持仓', ko: '보유', ru: 'Позиция',
+  },
+  'web.addHolding': {
+    en: 'Add Holding', it: 'Aggiungi posizione', es: 'Agregar posicion', fr: 'Ajouter position', de: 'Position hinzufugen',
+    pt: 'Adicionar posicao', ja: '保有を追加', zh: '添加持仓', ko: '보유 추가', ru: 'Добавить позицию',
+  },
+  'web.article': {
+    en: 'Article', it: 'Articolo', es: 'Articulo', fr: 'Article', de: 'Artikel',
+    pt: 'Artigo', ja: '記事', zh: '文章', ko: '기사', ru: 'Статья',
+  },
   'web.howItWorks': {
     en: 'How It Works', it: 'Come Funziona', es: 'Como Funciona', fr: 'Comment ca marche', de: 'So funktioniert es',
     pt: 'Como Funciona', ja: '使い方', zh: '使用方法', ko: '사용 방법', ru: 'Как это работает',
