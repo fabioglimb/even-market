@@ -22,7 +22,7 @@ import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
 import { Poller } from '../data/poller';
 import { fetchNewsArticleContent } from '../data/news';
-import { storageSet, storageGet } from 'even-toolkit/storage';
+import { storageSet, storageGet } from '../data/bridge-storage';
 
 type PageLayout = PageMode;
 

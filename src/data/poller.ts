@@ -3,7 +3,7 @@ import type { ChartResolution, GraphicEntry } from '../state/types';
 import { getQuotes, getCandles, getCandlesByPeriod, resolutionToRange, resolutionToHistoryStep } from './yahoo-finance';
 import { getCryptoQuotes, getCryptoCandles, resolutionToCgDays } from './coingecko';
 import { fetchMarketNews } from './news';
-import { storageSet } from 'even-toolkit/storage';
+import { storageSet } from './bridge-storage';
 
 const PORTFOLIO_KEY = 'even-market:portfolio';
 const ALERTS_KEY = 'even-market:alerts';
