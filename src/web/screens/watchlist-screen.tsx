@@ -1,12 +1,16 @@
+import { useState } from 'react';
+import { useEffect } from 'react';
 import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
 import { useSettings } from '../hooks/use-settings';
 import { useSelector, useDispatch } from '../hooks/use-store';
-import { ListItem, Badge, CategoryFilter } from 'even-toolkit/web';
+import { ListItem, Badge, CategoryFilter, Dialog, FileUpload, Button, Select } from 'even-toolkit/web';
 import { TickerInput } from '../components/shared/ticker-input';
 import { formatPrice, formatPercent, formatResolutionShort, displaySymbol } from '../../utils/format';
 import { t } from '../../utils/i18n';
 import type { AssetType } from '../../state/types';
+import { parseWatchlistImportFile } from '../lib/import-market-file';
+import { exportWatchlistFile, type MarketExportFormat } from '../lib/export-market-file';
 
 const FILTER_OPTIONS = ['All', 'Stock', 'Crypto', 'Forex', 'Commodity'];
 
@@ -26,17 +30,95 @@ const FILTER_REVERSE: Record<string, string> = {
   commodity: 'Commodity',
 };
 
-function WatchlistScreen() {
+function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: number; exportTrigger?: number }) {
   const dispatch = useDispatch();
   const quotes = useQuotes();
   const graphics = useGraphics();
   const settings = useSettings();
   const lang = settings.language;
   const filter = useSelector((s) => s.watchlistFilter);
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<MarketExportFormat>('csv');
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const filteredGraphics = filter === 'all'
     ? graphics
     : graphics.filter((g) => (g.assetType ?? 'stock') === filter);
+
+  useEffect(() => {
+    if (importTrigger && importTrigger > 0) {
+      setShowImport(true);
+      setImportError(null);
+    }
+  }, [importTrigger]);
+
+  useEffect(() => {
+    if (exportTrigger && exportTrigger > 0) {
+      setShowExport(true);
+      setImportError(null);
+    }
+  }, [exportTrigger]);
+
+  async function handleImport(files: File[]) {
+    const file = files[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportError(null);
+    setImportNotice(null);
+
+    try {
+      const result = await parseWatchlistImportFile(file);
+      result.items.forEach((item) => {
+        dispatch({
+          type: 'GRAPHIC_ADD',
+          symbol: item.symbol,
+          resolution: item.resolution,
+          assetType: item.assetType,
+          geckoId: item.geckoId,
+          quoteCurrency: item.quoteCurrency,
+        });
+      });
+
+      setImportNotice(
+        result.imported > 0
+          ? `Imported ${result.imported} symbol${result.imported === 1 ? '' : 's'}${result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.`
+          : `No symbols imported${result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.`,
+      );
+      setShowImport(false);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Failed to import file.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleExport() {
+    if (graphics.length === 0) {
+      setImportError('No symbols to export.');
+      setImportNotice(null);
+      setShowExport(false);
+      return;
+    }
+
+    // Must stay synchronous until navigator.share() — no async/await
+    exportWatchlistFile(graphics, exportFormat)
+      .then(({ filename, action }) => {
+        setImportNotice(
+          `${action === 'shared' ? 'Shared' : 'Exported'} ${graphics.length} symbol${graphics.length === 1 ? '' : 's'} ${action === 'shared' ? 'via share sheet' : 'to'} ${filename}.`,
+        );
+        setImportError(null);
+        setShowExport(false);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setImportError(error instanceof Error ? error.message : 'Failed to export watchlist.');
+        setImportNotice(null);
+      });
+  }
 
   return (
     <>
@@ -45,6 +127,12 @@ function WatchlistScreen() {
           dispatch({ type: 'GRAPHIC_ADD', symbol, resolution, assetType, geckoId, quoteCurrency: assetType === 'crypto' ? 'usd' : undefined })
         }
       />
+
+      {(importNotice || importError) && (
+        <div className={`mt-3 rounded-[6px] px-4 py-3 text-[13px] tracking-[-0.13px] ${importError ? 'bg-negative-alpha text-negative' : 'bg-surface text-text-dim'}`}>
+          {importError ?? importNotice}
+        </div>
+      )}
 
       {/* Category filter */}
       <div className="mt-3">
@@ -101,6 +189,53 @@ function WatchlistScreen() {
           </div>
         )}
       </div>
+
+      <Dialog open={showImport} onClose={() => !importing && setShowImport(false)} title="Import Watchlist">
+        <div className="flex flex-col gap-3">
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
+            Import `.txt`, `.csv`, or `.xlsx` files. Supported columns: `symbol`, optional `resolution`, `assetType`, `geckoId`, and `quoteCurrency`.
+          </p>
+          <FileUpload
+            accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            label={importing ? 'Importing...' : 'Drop a symbol file or tap to browse'}
+            onFiles={(files) => {
+              if (!importing) void handleImport(files);
+            }}
+          />
+          <p className="text-[11px] tracking-[-0.11px] text-text-muted leading-relaxed">
+            TXT example: one symbol per line. CSV/XLSX example: `symbol,resolution,assetType`.
+          </p>
+          {importError && (
+            <div className="rounded-[6px] bg-negative-alpha px-3 py-2 text-[11px] tracking-[-0.11px] text-negative">
+              {importError}
+            </div>
+          )}
+        </div>
+      </Dialog>
+
+      <Dialog open={showExport} onClose={() => setShowExport(false)} title="Export Watchlist">
+        <div className="flex flex-col gap-3">
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
+            Export the full watchlist as `.txt`, `.csv`, or `.xlsx`. The file includes `symbol`, `resolution`, `assetType`, `geckoId`, and `quoteCurrency`.
+          </p>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] tracking-[-0.11px] text-text-dim">Format</span>
+            <Select
+              value={exportFormat}
+              onValueChange={(value) => setExportFormat(value as MarketExportFormat)}
+              options={[
+                { value: 'csv', label: 'CSV (.csv)' },
+                { value: 'xlsx', label: 'Excel (.xlsx)' },
+                { value: 'txt', label: 'Text (.txt)' },
+              ]}
+            />
+          </div>
+          <div className="flex gap-3 mt-1.5">
+            <Button variant="ghost" className="flex-1" onClick={() => setShowExport(false)}>Cancel</Button>
+            <Button className="flex-1" onClick={handleExport}>Export</Button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }

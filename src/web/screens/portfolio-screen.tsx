@@ -2,24 +2,46 @@ import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
-import { ListItem, Badge, EmptyState, Button, Card, Dialog, Input, Select, ConfirmDialog, PieChart } from 'even-toolkit/web';
+import { ListItem, Badge, EmptyState, Button, Card, Dialog, Input, Select, ConfirmDialog, PieChart, FileUpload } from 'even-toolkit/web';
 import { IcEditChecklist } from 'even-toolkit/web/icons/svg-icons';
 import { formatPrice, formatPercent, displaySymbol } from '../../utils/format';
 import type { PortfolioHolding, AssetType } from '../../state/types';
+import { parsePortfolioImportFile } from '../lib/import-market-file';
+import { exportPortfolioFile, type MarketExportFormat } from '../lib/export-market-file';
 
-function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
+function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrigger?: number; importTrigger?: number; exportTrigger?: number }) {
   const dispatch = useDispatch();
   const portfolio = useSelector((s) => s.portfolio);
   const quotes = useQuotes();
   const graphics = useGraphics();
 
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<MarketExportFormat>('csv');
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // Open form when navbar + button is pressed
   useEffect(() => {
     if (addTrigger && addTrigger > 0) handleOpenForm();
   }, [addTrigger]);
+
+  useEffect(() => {
+    if (importTrigger && importTrigger > 0) {
+      setShowImport(true);
+      setImportError(null);
+    }
+  }, [importTrigger]);
+
+  useEffect(() => {
+    if (exportTrigger && exportTrigger > 0) {
+      setShowExport(true);
+      setImportError(null);
+    }
+  }, [exportTrigger]);
 
   // Form state
   const [selectedSymbol, setSelectedSymbol] = useState('');
@@ -82,8 +104,65 @@ function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
     setShowForm(false);
   }
 
+  async function handleImport(files: File[]) {
+    const file = files[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportError(null);
+    setImportNotice(null);
+
+    try {
+      const result = await parsePortfolioImportFile(file);
+      result.items.forEach((holding) => {
+        dispatch({ type: 'HOLDING_ADD', holding });
+      });
+
+      setImportNotice(
+        result.imported > 0
+          ? `Imported ${result.imported} holding${result.imported === 1 ? '' : 's'}${result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.`
+          : `No holdings imported${result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.`,
+      );
+      setShowImport(false);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Failed to import file.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleExport() {
+    if (portfolio.length === 0) {
+      setImportError('No holdings to export.');
+      setImportNotice(null);
+      setShowExport(false);
+      return;
+    }
+
+    // Must stay synchronous until navigator.share() — no async/await
+    exportPortfolioFile(portfolio, exportFormat)
+      .then(({ filename, action }) => {
+        setImportNotice(
+          `${action === 'shared' ? 'Shared' : 'Exported'} ${portfolio.length} holding${portfolio.length === 1 ? '' : 's'} ${action === 'shared' ? 'via share sheet' : 'to'} ${filename}.`,
+        );
+        setImportError(null);
+        setShowExport(false);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setImportError(error instanceof Error ? error.message : 'Failed to export portfolio.');
+        setImportNotice(null);
+      });
+  }
+
   return (
     <>
+      {(importNotice || importError) && (
+        <div className={`mb-3 rounded-[6px] px-4 py-3 text-[13px] tracking-[-0.13px] ${importError ? 'bg-negative-alpha text-negative' : 'bg-surface text-text-dim'}`}>
+          {importError ?? importNotice}
+        </div>
+      )}
+
       {/* Summary card */}
       <Card className="mb-3">
         <div className="flex items-center justify-between">
@@ -160,6 +239,53 @@ function PortfolioScreen({ addTrigger }: { addTrigger?: number }) {
           <div className="flex gap-3 mt-1.5">
             <Button variant="ghost" className="flex-1" onClick={() => setShowForm(false)}>Cancel</Button>
             <Button className="flex-1" onClick={handleSave}>Add</Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog open={showImport} onClose={() => !importing && setShowImport(false)} title="Import Portfolio">
+        <div className="flex flex-col gap-3">
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
+            Import `.txt`, `.csv`, or `.xlsx` files. Required columns: `symbol`, `quantity`, and `avgCost`.
+          </p>
+          <FileUpload
+            accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            label={importing ? 'Importing...' : 'Drop a portfolio file or tap to browse'}
+            onFiles={(files) => {
+              if (!importing) void handleImport(files);
+            }}
+          />
+          <p className="text-[11px] tracking-[-0.11px] text-text-muted leading-relaxed">
+            CSV/XLSX example: `symbol,quantity,avgCost,assetType`. Crypto rows can also include `geckoId`.
+          </p>
+          {importError && (
+            <div className="rounded-[6px] bg-negative-alpha px-3 py-2 text-[11px] tracking-[-0.11px] text-negative">
+              {importError}
+            </div>
+          )}
+        </div>
+      </Dialog>
+
+      <Dialog open={showExport} onClose={() => setShowExport(false)} title="Export Portfolio">
+        <div className="flex flex-col gap-3">
+          <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
+            Export the full portfolio as `.txt`, `.csv`, or `.xlsx`. The file includes `symbol`, `quantity`, `avgCost`, `assetType`, `geckoId`, and `quoteCurrency`.
+          </p>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] tracking-[-0.11px] text-text-dim">Format</span>
+            <Select
+              value={exportFormat}
+              onValueChange={(value) => setExportFormat(value as MarketExportFormat)}
+              options={[
+                { value: 'csv', label: 'CSV (.csv)' },
+                { value: 'xlsx', label: 'Excel (.xlsx)' },
+                { value: 'txt', label: 'Text (.txt)' },
+              ]}
+            />
+          </div>
+          <div className="flex gap-3 mt-1.5">
+            <Button variant="ghost" className="flex-1" onClick={() => setShowExport(false)}>Cancel</Button>
+            <Button className="flex-1" onClick={handleExport}>Export</Button>
           </div>
         </div>
       </Dialog>
