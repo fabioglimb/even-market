@@ -1,9 +1,8 @@
 import { useState, useCallback } from 'react';
 import type { Candle, ChartResolution } from '../../state/types';
-import { formatPrice, formatPercent } from '../../utils/format';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { usePoller } from '../contexts/poller-context';
-import { Badge, Card, SegmentedControl, EmptyState } from 'even-toolkit/web';
+import { Card, SegmentedControl, EmptyState } from 'even-toolkit/web';
 import { CandlestickChart } from '../components/shared/candlestick-chart';
 import { ChartInfo } from '../components/shared/chart-info';
 
@@ -24,7 +23,6 @@ function ChartScreen() {
     const g = s.settings.graphics.find((g) => g.id === s.selectedGraphicId);
     return g ?? null;
   });
-  const quote = useSelector((s) => (graphic ? s.quotes[graphic.symbol] : undefined));
   const candles = useSelector((s) => s.candles);
 
   const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
@@ -45,21 +43,8 @@ function ChartScreen() {
     );
   }
 
-  const sym = graphic.symbol;
-  const isUp = quote ? quote.changePercent >= 0 : true;
-
   return (
     <>
-      {quote && (
-        <div className="flex items-center justify-center gap-2 mb-3">
-          <span className="text-[17px] tracking-[-0.17px] font-mono tabular-nums">
-            ${formatPrice(quote.price)}
-          </span>
-          <Badge variant={isUp ? 'positive' : 'negative'}>
-            {formatPercent(quote.changePercent)}
-          </Badge>
-        </div>
-      )}
       <SegmentedControl
         options={RES_OPTIONS}
         value={graphic.resolution}

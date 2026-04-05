@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import type { Screen, PriceAlert } from '../state/types';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import type { Screen, PriceAlert, Candle } from '../state/types';
 import { useSelector, useDispatch } from './hooks/use-store';
 import { SideDrawer, DrawerTrigger, NavHeader, Button, Toast } from 'even-toolkit/web';
 import type { SideDrawerItem } from 'even-toolkit/web';
@@ -15,7 +15,7 @@ import { AlertsScreen } from './screens/alerts-screen';
 import { OverviewScreen } from './screens/overview-screen';
 import { NewsScreen } from './screens/news-screen';
 import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount } from '../state/alert-utils';
-import { formatPrice } from '../utils/format';
+import { formatPrice, formatPercent } from '../utils/format';
 import { t } from '../utils/i18n';
 
 type WebScreen = Screen | 'how-it-works' | 'news-detail';
@@ -55,6 +55,22 @@ function getBackScreen(screen: WebScreen): Screen {
   }
 }
 
+function getTimeframeHeaderStats(candles: Candle[], fallbackPrice?: number, fallbackPercent?: number) {
+  if (candles.length > 0) {
+    const first = candles[0]!;
+    const last = candles[candles.length - 1]!;
+    const base = first.open || first.close || 0;
+    const price = last.close;
+    const changePercent = base ? ((price - base) / base) * 100 : 0;
+    return { price, changePercent };
+  }
+
+  return {
+    price: fallbackPrice,
+    changePercent: fallbackPercent,
+  };
+}
+
 function App() {
   const dispatch = useDispatch();
   const storeScreen = useSelector((s) => s.screen);
@@ -64,6 +80,18 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [portfolioAddTrigger, setPortfolioAddTrigger] = useState(0);
   const [alertAddTrigger, setAlertAddTrigger] = useState(0);
+  const stockDetailGraphic = useSelector((s) =>
+    s.selectedGraphicId ? s.settings.graphics.find((g) => g.id === s.selectedGraphicId) ?? null : null,
+  );
+  const stockDetailQuote = useSelector((s) =>
+    s.selectedGraphicId
+      ? (() => {
+          const graphic = s.settings.graphics.find((g) => g.id === s.selectedGraphicId);
+          return graphic ? s.quotes[graphic.symbol] : undefined;
+        })()
+      : undefined,
+  );
+  const stockDetailCandles = useSelector((s) => s.candles);
   const selectedNewsId = useSelector((s) => s.selectedNewsId);
   const news = useSelector((s) => s.news);
   const selectedNewsArticle = selectedNewsId
@@ -127,6 +155,24 @@ function App() {
   }
 
   const isNested = !TOP_LEVEL_SCREENS.has(webScreen);
+  const stockHeaderStats = webScreen === 'stock-detail'
+    ? getTimeframeHeaderStats(stockDetailCandles, stockDetailQuote?.price, stockDetailQuote?.changePercent)
+    : null;
+  const headerTitle: ReactNode = webScreen === 'stock-detail' && stockDetailGraphic ? (
+    <div className="flex flex-col items-center justify-center leading-none">
+      <span className="text-[15px] tracking-[-0.15px] font-normal text-text">
+        {stockDetailGraphic.symbol}
+      </span>
+      {stockHeaderStats?.price != null && stockHeaderStats.changePercent != null ? (
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] tracking-[-0.11px] font-mono tabular-nums">
+          <span className="text-text-dim">${formatPrice(stockHeaderStats.price)}</span>
+          <span className={stockHeaderStats.changePercent >= 0 ? 'text-positive' : 'text-negative'}>
+            {formatPercent(stockHeaderStats.changePercent)}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  ) : getScreenTitle(webScreen, lang);
 
   return (
     <SideDrawer
@@ -141,7 +187,7 @@ function App() {
       <div className="relative flex flex-col h-full">
         <div className="shrink-0">
           <NavHeader
-            title={getScreenTitle(webScreen, lang)}
+            title={headerTitle}
             left={isNested
               ? <Button variant="ghost" size="icon" onClick={handleBack}><IcChevronBack width={16} height={16} /></Button>
               : <DrawerTrigger onClick={() => setDrawerOpen(true)} />

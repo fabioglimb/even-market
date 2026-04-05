@@ -716,7 +716,7 @@ function buildHomeText(state: AppState): string {
     lines: buildScrollableList({
       items,
       highlightedIndex: hi,
-      maxVisible: 6,
+      maxVisible: 5,
       formatter: (label) => truncate(label, 54),
     }),
   });
@@ -1080,7 +1080,12 @@ export async function initGlassesRenderer(): Promise<void> {
         if (action?.type === 'SELECT_HIGHLIGHTED') dismissGlassAlertToast();
         return;
       }
-      const action = mapEvenHubEvent(event, store.getState());
+      const state = store.getState();
+      const action = mapEvenHubEvent(event, state);
+      if (action?.type === 'GO_BACK' && state.screen === 'home') {
+        void hub?.rawBridge?.shutDownPageContainer?.(1);
+        return;
+      }
       if (action) store.dispatch(action);
     });
 
