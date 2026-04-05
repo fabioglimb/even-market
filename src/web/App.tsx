@@ -3,7 +3,7 @@ import type { Screen, PriceAlert, Candle } from '../state/types';
 import { useSelector, useDispatch } from './hooks/use-store';
 import { SideDrawer, DrawerTrigger, NavHeader, Button, Toast } from 'even-toolkit/web';
 import type { SideDrawerItem } from 'even-toolkit/web';
-import { IcFeatStocks, IcEditSettings, IcChevronBack, IcFeatNotification, IcFeatLearnExplore, IcEditChecklist, IcFeatNews, IcEditAdd, IcEditShare } from 'even-toolkit/web/icons/svg-icons';
+import { IcFeatStocks, IcEditSettings, IcChevronBack, IcFeatNotification, IcFeatLearnExplore, IcEditChecklist, IcFeatNews, IcEditAdd, IcEditShare, IcEditUploadToCloud } from 'even-toolkit/web/icons/svg-icons';
 import { WatchlistScreen } from './screens/watchlist-screen';
 import { ChartScreen } from './screens/chart-screen';
 import { SettingsScreen } from './screens/settings-screen';
@@ -78,7 +78,11 @@ function App() {
   const alerts = useSelector((s) => s.alerts);
   const [webScreen, setWebScreen] = useState<WebScreen>(storeScreen);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [watchlistImportTrigger, setWatchlistImportTrigger] = useState(0);
+  const [watchlistExportTrigger, setWatchlistExportTrigger] = useState(0);
   const [portfolioAddTrigger, setPortfolioAddTrigger] = useState(0);
+  const [portfolioImportTrigger, setPortfolioImportTrigger] = useState(0);
+  const [portfolioExportTrigger, setPortfolioExportTrigger] = useState(0);
   const [alertAddTrigger, setAlertAddTrigger] = useState(0);
   const stockDetailGraphic = useSelector((s) =>
     s.selectedGraphicId ? s.settings.graphics.find((g) => g.id === s.selectedGraphicId) ?? null : null,
@@ -118,13 +122,25 @@ function App() {
   }, [storeScreen]);
 
   useEffect(() => {
+    if (webScreen !== 'watchlist' && watchlistImportTrigger !== 0) {
+      setWatchlistImportTrigger(0);
+    }
+    if (webScreen !== 'watchlist' && watchlistExportTrigger !== 0) {
+      setWatchlistExportTrigger(0);
+    }
     if (webScreen !== 'portfolio' && portfolioAddTrigger !== 0) {
       setPortfolioAddTrigger(0);
+    }
+    if (webScreen !== 'portfolio' && portfolioImportTrigger !== 0) {
+      setPortfolioImportTrigger(0);
+    }
+    if (webScreen !== 'portfolio' && portfolioExportTrigger !== 0) {
+      setPortfolioExportTrigger(0);
     }
     if (webScreen !== 'alerts' && alertAddTrigger !== 0) {
       setAlertAddTrigger(0);
     }
-  }, [webScreen, portfolioAddTrigger, alertAddTrigger]);
+  }, [webScreen, watchlistImportTrigger, watchlistExportTrigger, portfolioAddTrigger, portfolioImportTrigger, portfolioExportTrigger, alertAddTrigger]);
 
   useEffect(() => {
     const latest = getLatestTriggeredAlert(alerts);
@@ -193,10 +209,52 @@ function App() {
               : <DrawerTrigger onClick={() => setDrawerOpen(true)} />
             }
             right={
-              webScreen === 'portfolio' ? (
-                <Button size="icon" onClick={() => setPortfolioAddTrigger((n) => n + 1)}>
-                  <IcEditAdd width={16} height={16} />
-                </Button>
+              webScreen === 'watchlist' || webScreen === 'home' ? (
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon"
+                    className="bg-black text-white hover:bg-black/90"
+                    aria-label="Export watchlist file"
+                    onClick={() => setWatchlistExportTrigger((n) => n + 1)}
+                  >
+                    <IcEditShare width={16} height={16} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    className="bg-black text-white hover:bg-black/90"
+                    aria-label="Import watchlist file"
+                    onClick={() => setWatchlistImportTrigger((n) => n + 1)}
+                  >
+                    <IcEditUploadToCloud width={16} height={16} />
+                  </Button>
+                </div>
+              ) : webScreen === 'portfolio' ? (
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon"
+                    className="bg-black text-white hover:bg-black/90"
+                    aria-label="Export portfolio file"
+                    onClick={() => setPortfolioExportTrigger((n) => n + 1)}
+                  >
+                    <IcEditShare width={16} height={16} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    className="bg-black text-white hover:bg-black/90"
+                    aria-label="Import portfolio file"
+                    onClick={() => setPortfolioImportTrigger((n) => n + 1)}
+                  >
+                    <IcEditUploadToCloud width={16} height={16} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    className="bg-black text-white hover:bg-black/90"
+                    aria-label="Add holding"
+                    onClick={() => setPortfolioAddTrigger((n) => n + 1)}
+                  >
+                    <IcEditAdd width={16} height={16} />
+                  </Button>
+                </div>
               ) : webScreen === 'alerts' ? (
                 <Button size="icon" onClick={() => setAlertAddTrigger((n) => n + 1)}>
                   <IcEditAdd width={16} height={16} />
@@ -218,7 +276,11 @@ function App() {
           <div className="px-3 pt-4 pb-8">
             {renderScreen(
               webScreen,
+              watchlistImportTrigger,
+              watchlistExportTrigger,
               portfolioAddTrigger,
+              portfolioImportTrigger,
+              portfolioExportTrigger,
               alertAddTrigger,
               setWebScreen,
             )}
@@ -259,13 +321,18 @@ function App() {
 
 function renderScreen(
   screen: WebScreen,
+  watchlistImportTrigger?: number,
+  watchlistExportTrigger?: number,
   portfolioAddTrigger?: number,
+  portfolioImportTrigger?: number,
+  portfolioExportTrigger?: number,
   alertAddTrigger?: number,
   onScreenChange?: (s: WebScreen) => void,
 ) {
   switch (screen) {
+    case 'home':
     case 'watchlist':
-      return <WatchlistScreen />;
+      return <WatchlistScreen importTrigger={watchlistImportTrigger} exportTrigger={watchlistExportTrigger} />;
     case 'stock-detail':
       return <ChartScreen />;
     case 'settings':
@@ -273,7 +340,7 @@ function renderScreen(
     case 'how-it-works':
       return <HowItWorksScreen />;
     case 'portfolio':
-      return <PortfolioScreen addTrigger={portfolioAddTrigger} />;
+      return <PortfolioScreen addTrigger={portfolioAddTrigger} importTrigger={portfolioImportTrigger} exportTrigger={portfolioExportTrigger} />;
     case 'holding-detail':
       return <HoldingDetailScreen />;
     case 'holding-form':
