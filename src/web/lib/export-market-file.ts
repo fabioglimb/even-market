@@ -12,22 +12,7 @@ function buildFilename(prefix: string, format: MarketExportFormat): string {
   return `${prefix}-${stamp}.${format}`;
 }
 
-function shareOrDownloadBlob(blob: Blob, filename: string): Promise<MarketExportAction> {
-  // navigator.share must be called synchronously from the user gesture call stack.
-  // Do NOT insert any await before this call — Safari will block it.
-  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-    const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-    const canShareFiles =
-      typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] });
-
-    if (canShareFiles) {
-      return navigator.share({ title: filename, files: [file] }).then(() => 'shared' as const);
-    }
-
-    return navigator.share({ title: filename, text: `Exported: ${filename}` }).then(() => 'shared' as const);
-  }
-
-  // Desktop fallback: trigger download
+function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -36,6 +21,29 @@ function shareOrDownloadBlob(blob: Blob, filename: string): Promise<MarketExport
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function shareOrDownloadBlob(blob: Blob, filename: string): Promise<MarketExportAction> {
+  // navigator.share must be called synchronously from the user gesture call stack.
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+    const canShareFiles =
+      typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] });
+
+    const sharePromise = canShareFiles
+      ? navigator.share({ title: filename, files: [file] })
+      : navigator.share({ title: filename, text: `Exported: ${filename}` });
+
+    return sharePromise.then(() => 'shared' as const).catch((err) => {
+      // User cancelled — re-throw so caller can handle
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      // Permission denied or unsupported — fall back to download
+      downloadBlob(blob, filename);
+      return 'downloaded' as const;
+    });
+  }
+
+  downloadBlob(blob, filename);
   return Promise.resolve('downloaded');
 }
 
