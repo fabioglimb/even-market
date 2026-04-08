@@ -565,11 +565,8 @@ function buildWatchlistText(state: AppState, time: string): string {
   return lines.join('\n');
 }
 
-// Block-style ASCII art using G2-supported chars
-const MARKET_ART = [
-  '█▄ ▄█  ▄▀█  █▀▄  █ ▄▀  █▀▀  ▀█▀',
-  '█ ▀ █  █▀█  █▀▄  █▀▄   █▀▀   █ ',
-  '█   █  ▀ ▀  ▀ ▀  ▀  ▀  ▀▀▀   ▀ ',
+const MARKET_HEADER = [
+  '◆  E R   M A R K E T  ◆',
 ];
 
 function buildHomeText(state: AppState): string {
@@ -585,7 +582,7 @@ function buildHomeText(state: AppState): string {
     t('home.settings', lang),
   ];
 
-  const artLines = MARKET_ART.map((row) => ({
+  const artLines = MARKET_HEADER.map((row) => ({
     text: row,
     style: 'normal' as const,
     inverted: false,
