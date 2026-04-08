@@ -1,14 +1,11 @@
 import { EvenHubBridge } from 'even-toolkit/bridge';
 import type { PageMode } from 'even-toolkit/types';
 import { notifyTextUpdate } from 'even-toolkit/gestures';
-import { encodeTilesBatch, resetTileCache } from 'even-toolkit/png-utils';
-import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H, CHART_CANVAS_W, CHART_CANVAS_H, VIEWPORT_PER_RESOLUTION } from 'even-toolkit/layout';
 import { activateKeepAlive } from 'even-toolkit/keep-alive';
 import { buildActionBar } from 'even-toolkit/action-bar';
 import { buildScrollableContent, buildScrollableList, DEFAULT_CONTENT_SLOTS, slidingWindowStart } from 'even-toolkit/glass-display-builders';
 import { truncate } from 'even-toolkit/text-utils';
 import type { DisplayData } from 'even-toolkit/types';
-import { marketSplash } from './splash';
 import { createStore } from '../state/store';
 import type { AppState, GraphicEntry, ChartResolution, PriceAlert } from '../state/types';
 import { makeGraphicId } from '../state/types';
@@ -16,7 +13,6 @@ import { getDisplayData } from '../state/selectors';
 import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount, isUnreadTriggeredAlert, sortAlertsForDisplay } from '../state/alert-utils';
 import { filterNewsItems } from '../state/news-utils';
 import { mapEvenHubEvent } from '../input/action-map';
-import { renderToCanvasDirect, drawCandlesInto, getCanvas, resetViewport, getViewportStart } from './canvas-renderer';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
 import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
@@ -26,18 +22,6 @@ import { storageSet, storageGet } from '../data/bridge-storage';
 
 type PageLayout = PageMode;
 
-// ── Splash candle persistence ──
-
-const SPLASH_CANDLES_KEY = 'even-market-splash-candles';
-
-function saveSplashCandles(candles: { open: number; high: number; low: number; close: number; volume: number }[]): void {
-  try {
-    const slice = candles.slice(-16).map((c) => ({
-      open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
-    }));
-    storageSet(SPLASH_CANDLES_KEY, slice);
-  } catch { /* ignore */ }
-}
 
 let hub: EvenHubBridge | null = null;
 let store: ReturnType<typeof createStore>;
@@ -98,11 +82,7 @@ async function ensureLayout(state: AppState): Promise<void> {
   if (desired === 'splash') return;
 
   if (state.screen === 'home') {
-    // Only use the first tile (logo) for home — "Loading..." tile is splash-only
-    const tiles = marketSplash.getTiles();
-    const t = tiles[0];
-    const imageTiles = t ? [{ id: t.id, name: t.name, x: t.x, y: t.y, w: t.w, h: t.h }] : undefined;
-    await hub.switchToHomeLayout(buildHomeText(state), imageTiles);
+    await hub.switchToHomeLayout(buildHomeText(state));
   } else if (desired === 'chart') {
     await hub.switchToChartLayout(buildChartTopText(state));
   } else if (desired === 'columns') {
@@ -161,125 +141,12 @@ async function flushText(state: AppState): Promise<void> {
   }
 }
 
-// ── Image updates (throttled, chart layout only) ──
-
-let imgBusy = false;
-let imgDirty = false;
-const IMG_INTERVAL = 80;
-const tileHashes = new Map<number, number>();
-let prevHighlightTile = -1;
-
-/** Which tile index (0,1,2) does a candle pixel position fall in? */
-function candleToTile(candleIdx: number, totalCandles: number, viewportSize: number): number {
-  const canvasW = 576;
-  const vp = Math.min(totalCandles, viewportSize);
-  if (vp <= 0) return 0;
-  const candleW = Math.floor((canvasW - 12) / vp);
-  const px = 6 + candleIdx * candleW + candleW / 2;
-  if (px < 200) return 0;
-  if (px < 400) return 1;
-  return 2;
-}
-
-async function flushImages(state: AppState, prev?: AppState): Promise<void> {
-  if (!hub || !hub.pageReady || (hub.currentLayout !== 'chart' && hub.currentLayout !== 'home')) return;
-  if (state.screen === 'splash') return;
-  if (glassAlertToastActive) return;
-  if (imgBusy) { imgDirty = true; return; }
-
-  imgBusy = true;
-  imgDirty = false;
-  try {
-    // Home screen: send only the first tile (logo) — home layout has 1 image container
-    if (state.screen === 'home') {
-      const tile = marketSplash.getTiles()[0];
-      if (tile) await hub.sendImage(tile.id, tile.name, tile.bytes);
-      imgBusy = false;
-      return;
-    }
-
-    const data = getDisplayData(state);
-    if (!data.chartData || data.chartData.candles.length === 0) return;
-
-    const canvas = renderToCanvasDirect(data);
-
-    // Determine which tiles to encode
-    const fullRedraw = !prev || prev.candles !== state.candles ||
-      prev.settings !== state.settings || prev.selectedGraphicId !== state.selectedGraphicId ||
-      prev.screen !== state.screen;
-
-    let tilesToEncode: number[];
-    if (fullRedraw) {
-      tilesToEncode = [0, 1, 2];
-    } else {
-      // Only encode tiles affected by highlight movement
-      const vp = (data.resolution && VIEWPORT_PER_RESOLUTION[data.resolution]) || 40;
-      const dirtyTiles = new Set<number>();
-      if (state.highlightedCandleIndex >= 0) {
-        const localIdx = state.highlightedCandleIndex - (getViewportStart() >= 0 ? getViewportStart() : 0);
-        dirtyTiles.add(candleToTile(localIdx, data.chartData.candles.length, vp));
-      }
-      if (prevHighlightTile >= 0) dirtyTiles.add(prevHighlightTile);
-      tilesToEncode = dirtyTiles.size > 0 ? [...dirtyTiles] : [0, 1, 2];
-    }
-
-    // Encode only dirty tiles
-    for (const i of tilesToEncode) {
-      const tile = IMAGE_TILES[i]!;
-      const enc = encodeTilesBatch(canvas, [tile], G2_IMAGE_MAX_W, G2_IMAGE_MAX_H)[0]!;
-      if (tileHashes.get(tile.id) === enc.hash) continue;
-      tileHashes.set(tile.id, enc.hash);
-      await hub.sendImage(tile.id, tile.name, enc.bytes);
-      if (textPending) break;
-    }
-
-    // Track highlight tile for next diff
-    if (state.highlightedCandleIndex >= 0 && data.chartData) {
-      const vp = (data.resolution && VIEWPORT_PER_RESOLUTION[data.resolution]) || 40;
-      const localIdx = state.highlightedCandleIndex - (getViewportStart() >= 0 ? getViewportStart() : 0);
-      prevHighlightTile = candleToTile(localIdx, data.chartData.candles.length, vp);
-    } else {
-      prevHighlightTile = -1;
-    }
-  } catch { /* skip */ }
-  finally {
-    imgBusy = false;
-    if (imgDirty) {
-      setTimeout(() => {
-        imgDirty = false;
-        flushImages(store.getState()).catch(() => { });
-      }, IMG_INTERVAL);
-    }
-  }
-}
 
 // ── Combined flush ──
 
-function flushDisplay(state: AppState, prev?: AppState): void {
+function flushDisplay(state: AppState): void {
   if (glassAlertToastActive) return;
   flushText(state).catch(() => { });
-  const layout = getDesiredLayout(state);
-  if (layout === 'chart' || layout === 'home') {
-    if (prev && (
-      prev.screen !== state.screen ||
-      prev.candles !== state.candles ||
-      prev.selectedGraphicId !== state.selectedGraphicId ||
-      prev.settings !== state.settings
-    )) {
-      tileHashes.clear();
-      resetViewport();
-    }
-    flushImages(state, prev).catch(() => { });
-  }
-}
-
-function needsImageUpdate(state: AppState, prev: AppState): boolean {
-  if (state.screen !== prev.screen) return true;
-  if (state.quotes !== prev.quotes) return true;
-  if (state.candles !== prev.candles) return true;
-  if (state.selectedGraphicId !== prev.selectedGraphicId) return true;
-  if (state.settings !== prev.settings) return true;
-  return false;
 }
 
 // ── Text builders ──
@@ -993,20 +860,10 @@ function handleSideEffects(state: AppState, prev: AppState): void {
     }
   }
 
-  // Persist candles for splash screen
-  if (state.candles !== prev.candles && state.candles.length > 0) {
-    saveSplashCandles(state.candles);
-  }
 }
 
 // ── Setup ──
 
-function mountHiddenCanvas(): void {
-  const container = document.getElementById('glasses-canvas');
-  if (!container) return;
-  const cvs = getCanvas();
-  container.appendChild(cvs);
-}
 
 function migrateOldSettings(raw: string): Record<string, unknown> {
   const settings = JSON.parse(raw);
@@ -1056,8 +913,6 @@ export function getPoller(): Poller {
 }
 
 export async function initGlassesRenderer(): Promise<void> {
-  mountHiddenCanvas();
-
   store = createStore();
   poller = new Poller(store);
   await loadSettings();
@@ -1067,12 +922,7 @@ export async function initGlassesRenderer(): Promise<void> {
     hub = sdkHub;
     store.dispatch({ type: 'CONNECTION_STATUS', status: 'connected' });
 
-    // Set up home layout with icon tile BEFORE dispatching (avoids race with subscriber)
-    const tiles = marketSplash.getTiles();
-    const t = tiles[0];
-    const imageTiles = t ? [{ id: t.id, name: t.name, x: t.x, y: t.y, w: t.w, h: t.h }] : undefined;
-    await hub.showHomePage(buildHomeText(store.getState()), imageTiles);
-    if (t) await hub.sendImage(t.id, t.name, t.bytes);
+    await hub.showHomePage(buildHomeText(store.getState()));
 
     hub.onEvent((event) => {
       if (glassAlertToastActive) {
@@ -1096,7 +946,7 @@ export async function initGlassesRenderer(): Promise<void> {
 
   store.subscribe((state, prev) => {
     if (shouldUpdateDisplay(state, prev)) {
-      flushDisplay(state, prev);
+      flushDisplay(state);
     }
     handleSideEffects(state, prev);
   });
