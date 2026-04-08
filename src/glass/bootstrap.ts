@@ -565,7 +565,13 @@ function buildWatchlistText(state: AppState, time: string): string {
   return lines.join('\n');
 }
 
-/** Home screen text (below chart image tiles): ER Market + menu buttons. */
+// Block-style ASCII art using G2-supported chars
+const MARKET_ART = [
+  '█▄ ▄█  ▄▀█  █▀▄  █ ▄▀  █▀▀  ▀█▀',
+  '█ ▀ █  █▀█  █▀▄  █▀▄   █▀▀   █ ',
+  '█   █  ▀ ▀  ▀ ▀  ▀  ▀  ▀▀▀   ▀ ',
+];
+
 function buildHomeText(state: AppState): string {
   const lang = state.settings.language;
   const hi = state.highlightedIndex;
@@ -579,13 +585,22 @@ function buildHomeText(state: AppState): string {
     t('home.settings', lang),
   ];
 
+  const artLines = MARKET_ART.map((row) => ({
+    text: row,
+    style: 'normal' as const,
+    inverted: false,
+  }));
+  const sep = { text: '', style: 'separator' as const, inverted: false };
+
+  const menuLines = buildScrollableList({
+    items,
+    highlightedIndex: hi,
+    maxVisible: 6,
+    formatter: (label) => truncate(label, 54),
+  });
+
   return renderDisplayData({
-    lines: buildScrollableList({
-      items,
-      highlightedIndex: hi,
-      maxVisible: 8,
-      formatter: (label) => truncate(label, 54),
-    }),
+    lines: [...artLines, sep, ...menuLines],
   });
 }
 
