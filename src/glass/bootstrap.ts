@@ -583,7 +583,7 @@ function buildHomeText(state: AppState): string {
     lines: buildScrollableList({
       items,
       highlightedIndex: hi,
-      maxVisible: 5,
+      maxVisible: 8,
       formatter: (label) => truncate(label, 54),
     }),
   });
