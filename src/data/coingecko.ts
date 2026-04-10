@@ -128,6 +128,26 @@ export async function searchCoins(query: string): Promise<CoinSearchResult[]> {
 /**
  * Map our chart resolution to CoinGecko OHLC days parameter.
  */
+/**
+ * Fetch historical price series from CoinGecko market_chart endpoint.
+ * Returns array of [timestamp_ms, price] pairs.
+ */
+export async function getCryptoMarketChart(
+  geckoId: string,
+  days: number,
+  quoteCurrency = 'usd',
+): Promise<Array<[number, number]>> {
+  try {
+    const url = `${CG_BASE}/coins/${geckoId}/market_chart?vs_currency=${quoteCurrency}&days=${days}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.prices as Array<[number, number]>) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export function resolutionToCgDays(resolution: string): number | string {
   switch (resolution) {
     case '1': return 1;

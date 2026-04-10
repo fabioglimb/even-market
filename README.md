@@ -1,5 +1,7 @@
 # EvenMarket
 
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=flat&logo=buy-me-a-coffee)](https://buymeacoffee.com/f3tch)
+
 Real-time market watchlist, interactive candlestick charts, and candle-by-candle navigation for **Even Realities G2** smart glasses — powered by Yahoo Finance.
 
 ![EvenMarket](media/hero.png)
@@ -205,6 +207,12 @@ api/
 - **BLE throughput**: image updates throttled with hash-based diffing to skip unchanged tiles
 
 ---
+
+## Support
+
+If you find this useful, consider supporting the project:
+
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/f3tch)
 
 ## License
 

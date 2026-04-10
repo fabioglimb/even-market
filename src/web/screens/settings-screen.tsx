@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { ChartType } from '../../state/types';
+import type { ChartType, DisplayCurrency } from '../../state/types';
 import { useSettings } from '../hooks/use-settings';
 import { useConnection } from '../hooks/use-connection';
 import { useDispatch } from '../hooks/use-store';
@@ -62,6 +62,23 @@ function SettingsScreen() {
             value={String(settings.refreshInterval)}
             onValueChange={(val) => dispatch({ type: 'SETTING_CHANGE', key: 'refreshInterval', value: Number(val) })}
             className="w-[80px]"
+          />
+        </SettingRow>
+        <SettingRow label="Currency" description="Display currency for prices and values">
+          <Select
+            options={[
+              { value: 'USD', label: '$ USD' },
+              { value: 'EUR', label: '€ EUR' },
+              { value: 'GBP', label: '£ GBP' },
+              { value: 'JPY', label: '¥ JPY' },
+              { value: 'CHF', label: 'CHF' },
+              { value: 'CAD', label: 'C$ CAD' },
+              { value: 'AUD', label: 'A$ AUD' },
+              { value: 'CNY', label: '¥ CNY' },
+            ]}
+            value={settings.displayCurrency}
+            onValueChange={(val) => dispatch({ type: 'SETTING_CHANGE', key: 'displayCurrency', value: val as DisplayCurrency })}
+            className="w-[110px]"
           />
         </SettingRow>
         <SettingRow label={t('web.chartType', lang)} description="Chart style on glasses display">

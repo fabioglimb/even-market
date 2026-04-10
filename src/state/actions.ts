@@ -37,4 +37,10 @@ export type Action =
   | { type: 'NEWS_FILTER'; filter: 'all' | 'stocks' | 'crypto' }
   | { type: 'NEWS_ARTICLE_LOADING'; newsId: string }
   | { type: 'NEWS_ARTICLE_LOADED'; newsId: string; content: string }
-  | { type: 'SELECT_NEWS'; newsId: string };
+  | { type: 'SELECT_NEWS'; newsId: string }
+  | { type: 'FX_RATES_LOADED'; rates: Record<string, number> }
+  | { type: 'PORTFOLIO_CHART_LOADING' }
+  | { type: 'PORTFOLIO_CHART_LOADED'; data: Array<{ time: number; value: number }> }
+  | { type: 'PORTFOLIO_CHART_PERIOD'; period: import('./types').PortfolioChartPeriod }
+  | { type: 'TOGGLE_FAVORITE'; symbol: string }
+  | { type: 'FAVORITES_LOADED'; symbols: string[] };

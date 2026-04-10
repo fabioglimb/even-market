@@ -1,6 +1,9 @@
 import { EvenHubBridge } from 'even-toolkit/bridge';
 import type { PageMode } from 'even-toolkit/types';
+import { glassHeader, renderTextPageLines } from 'even-toolkit/types';
 import { notifyTextUpdate } from 'even-toolkit/gestures';
+import { encodeTilesBatch } from 'even-toolkit/png-utils';
+import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H } from 'even-toolkit/layout';
 import { activateKeepAlive } from 'even-toolkit/keep-alive';
 import { buildActionBar } from 'even-toolkit/action-bar';
 import { buildScrollableContent, buildScrollableList, DEFAULT_CONTENT_SLOTS, slidingWindowStart } from 'even-toolkit/glass-display-builders';
@@ -13,6 +16,9 @@ import { getDisplayData } from '../state/selectors';
 import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount, isUnreadTriggeredAlert, sortAlertsForDisplay } from '../state/alert-utils';
 import { filterNewsItems } from '../state/news-utils';
 import { mapEvenHubEvent } from '../input/action-map';
+import { renderPortfolioLineChart } from './line-renderer';
+import { renderToCanvasDirect } from './canvas-renderer';
+import { fetchPortfolioHistory } from '../data/portfolio-history';
 import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
 import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
 import type { MarketLanguage } from '../utils/i18n';
@@ -40,7 +46,7 @@ function buildWideHeader(title: string, time: string, width = GLASSES_NEWS_WIDTH
 
 function renderDisplayData(data: DisplayData): string {
   return data.lines.map((line) => {
-    if (line.style === 'separator') return '\u2500'.repeat(28);
+    if (line.style === 'separator') return `  ${'─'.repeat(27)}`;
     if (line.inverted) return `\u25B6 ${line.text}`;
     return `  ${line.text}`;
   }).join('\n');
@@ -51,8 +57,10 @@ function renderDisplayData(data: DisplayData): string {
 function getDesiredLayout(state: AppState): PageLayout {
   if (state.screen === 'splash') return 'splash';
   if (state.screen === 'home') return 'home' as PageLayout;
-  if (state.screen === 'stock-detail') return 'chart';
-  if (state.screen === 'watchlist' || state.screen === 'portfolio' || state.screen === 'overview') return 'columns';
+  if (state.screen === 'stock-detail' || state.screen === 'portfolio-chart') return 'chart';
+  if (state.screen === 'watchlist' || state.screen === 'overview') return 'columns';
+  if (state.screen === 'portfolio') return 'split' as PageLayout;
+  if (state.screen === 'holding-detail') return 'columns';
   return 'text';
 }
 
@@ -62,13 +70,13 @@ function getColumnLayoutContent(state: AppState): string[] | null {
       const cols = buildWatchlistColumns(state);
       return [cols.sym, cols.price, cols.pct];
     }
-    case 'portfolio': {
-      const cols = buildPortfolioColumns(state);
-      return [cols.labels, cols.values, cols.detail];
-    }
     case 'overview': {
       const cols = buildOverviewColumns(state);
       return [cols.labels, cols.values, cols.detail];
+    }
+    case 'holding-detail': {
+      const split = buildHoldingDetailSplit(state);
+      return split.panes;
     }
     default:
       return null;
@@ -84,10 +92,14 @@ async function ensureLayout(state: AppState): Promise<void> {
   if (state.screen === 'home') {
     await hub.switchToHomeLayout(buildHomeText(state));
   } else if (desired === 'chart') {
-    await hub.switchToChartLayout(buildChartTopText(state));
+    const chartText = state.screen === 'portfolio-chart' ? buildPortfolioChartText(state) : buildChartTopText(state);
+    await hub.switchToChartLayout(chartText);
   } else if (desired === 'columns') {
     const columns = getColumnLayoutContent(state);
     if (columns) await hub.showColumnPage(columns);
+  } else if (desired === 'split') {
+    const split = buildPortfolioSplit(state);
+    await hub.showSplitPage(split.header, split.panes, { paneWidths: [192, 192, 192] });
   } else if (state.screen === 'settings') {
     await hub.switchToSettings(buildFullText(state));
   } else {
@@ -119,10 +131,14 @@ async function flushText(state: AppState): Promise<void> {
     if (state.screen === 'home') {
       updatePromise = hub.updateHomeText(buildHomeText(state));
     } else if (hub.currentLayout === 'chart') {
-      updatePromise = hub.updateChartText(buildChartTopText(state));
+      const chartText = state.screen === 'portfolio-chart' ? buildPortfolioChartText(state) : buildChartTopText(state);
+      updatePromise = hub.updateChartText(chartText);
     } else if (hub.currentLayout === 'columns') {
       const columns = getColumnLayoutContent(state);
       updatePromise = columns ? hub.updateColumns(columns) : hub.updateText(buildFullText(state));
+    } else if (hub.currentLayout === 'split') {
+      const split = buildPortfolioSplit(state);
+      updatePromise = hub.updateSplitPage(split.header, split.panes, { paneWidths: [192, 192, 192] });
     } else if (state.screen === 'settings') {
       updatePromise = hub.updateSettings(buildFullText(state));
     } else {
@@ -144,9 +160,59 @@ async function flushText(state: AppState): Promise<void> {
 
 // ── Combined flush ──
 
+// ── Chart image rendering (shared by stock-detail and portfolio-chart) ──
+
+let chartImgBusy = false;
+
+async function flushChartImages(canvas: OffscreenCanvas | HTMLCanvasElement): Promise<void> {
+  if (!hub || !hub.pageReady) return;
+  if (chartImgBusy) return;
+
+  chartImgBusy = true;
+  try {
+    for (let i = 0; i < IMAGE_TILES.length; i++) {
+      const tile = IMAGE_TILES[i]!;
+      const enc = encodeTilesBatch(canvas as HTMLCanvasElement, [tile], G2_IMAGE_MAX_W, G2_IMAGE_MAX_H)[0]!;
+      await hub.sendImage(tile.id, tile.name, enc.bytes);
+    }
+  } catch { /* ignore */ }
+  finally { chartImgBusy = false; }
+}
+
+async function fetchAndRenderPortfolioChart(): Promise<void> {
+  const state = store.getState();
+  if (state.screen !== 'portfolio-chart' || state.portfolio.length === 0) return;
+
+  store.dispatch({ type: 'PORTFOLIO_CHART_LOADING' });
+  try {
+    const data = await fetchPortfolioHistory(
+      state.portfolio,
+      state.portfolioChartPeriod,
+      state.settings.displayCurrency,
+      state.fxRates,
+    );
+    store.dispatch({ type: 'PORTFOLIO_CHART_LOADED', data });
+  } catch {
+    store.dispatch({ type: 'PORTFOLIO_CHART_LOADED', data: [] });
+  }
+}
+
 function flushDisplay(state: AppState): void {
   if (glassAlertToastActive) return;
   flushText(state).catch(() => { });
+
+  if (hub?.currentLayout === 'chart') {
+    if (state.screen === 'portfolio-chart' && state.portfolioChartData.length > 0) {
+      const canvas = renderPortfolioLineChart(state.portfolioChartData);
+      flushChartImages(canvas).catch(() => { });
+    } else if (state.screen === 'stock-detail') {
+      const data = getDisplayData(state);
+      if (data.chartData && data.chartData.candles.length > 0) {
+        const canvas = renderToCanvasDirect(data);
+        flushChartImages(canvas).catch(() => { });
+      }
+    }
+  }
 }
 
 // ── Text builders ──
@@ -264,12 +330,24 @@ function showTransientGlassAlertToast(alert: PriceAlert): void {
   void hub.showColumnPage(buildGlassAlertToastColumns(alert));
 }
 
-function buildPortfolioText(state: AppState, time: string): string {
+// Portfolio mode encoding: 0-99 = buttons, 100+ = scroll (offset = hi - 100)
+const PORTFOLIO_SCROLL_BASE = 100;
+
+function buildPortfolioText(state: AppState, _time: string): string {
   const holdings = state.portfolio;
+  const hi = state.highlightedIndex;
+  const isScrollMode = hi >= PORTFOLIO_SCROLL_BASE;
+  const scrollOffset = isScrollMode ? hi - PORTFOLIO_SCROLL_BASE : 0;
+  const buttonIdx = isScrollMode ? -1 : hi;
+
+  const buttons = ['Detail', 'Chart'];
+  const activeLabel = isScrollMode ? 'Detail' : null;
+  const actionBar = buildActionBar(buttons, buttonIdx, activeLabel, false);
+
   if (holdings.length === 0) {
     return renderDisplayData(buildScrollableContent({
       title: 'Portfolio',
-      actionBar: time,
+      actionBar,
       contentLines: ['No holdings yet', '', 'Add holdings from web'],
       scrollPos: 0,
     }));
@@ -282,10 +360,33 @@ function buildPortfolioText(state: AppState, time: string): string {
   const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  if (!isScrollMode) {
+    // Detail view: show summary info
+    const lines: Array<{ text: string; style: string; inverted: boolean }> = [
+      { text: `Portfolio  ${actionBar}`, style: 'normal', inverted: false },
+      { text: '', style: 'separator', inverted: false },
+      { text: `Total Value  $${formatPrice(totalValue)}`, style: 'normal', inverted: false },
+      { text: `P&L  ${totalPnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(totalPnl))}  ${formatPercent(totalPnlPct)}`, style: 'meta', inverted: false },
+      { text: `Holdings  ${holdings.length}`, style: 'meta', inverted: false },
+      { text: '', style: 'normal', inverted: false },
+    ];
+    // Show top holdings summary
+    const topHoldings = holdings.slice(0, 4);
+    for (const h of topHoldings) {
+      const q = state.quotes[h.symbol];
+      const mv = (q?.price ?? h.avgCost) * h.quantity;
+      const pct = totalValue > 0 ? (mv / totalValue) * 100 : 0;
+      lines.push({ text: truncate(`${h.symbol}  $${formatPrice(mv)}  ${pct.toFixed(0)}%`, 54), style: 'meta', inverted: false });
+    }
+    return renderDisplayData({ lines: lines as DisplayData['lines'] });
+  }
+
+  // Scroll mode: scrollable holdings list
   const list = buildScrollableList({
     items: holdings,
-    highlightedIndex: Math.min(state.highlightedIndex, holdings.length - 1),
-    maxVisible: DEFAULT_CONTENT_SLOTS,
+    highlightedIndex: Math.min(scrollOffset, holdings.length - 1),
+    maxVisible: 7,
     formatter: (holding) => {
       const quote = state.quotes[holding.symbol];
       const marketValue = (quote?.price ?? holding.avgCost) * holding.quantity;
@@ -293,16 +394,17 @@ function buildPortfolioText(state: AppState, time: string): string {
       return truncate(`${holding.symbol} ${holding.quantity}u $${formatPrice(marketValue)} ${formatPercent(pct)}`, 54);
     },
   });
+
   return renderDisplayData({
     lines: [
-      { text: `Portfolio $${formatPrice(totalValue)}`, style: 'normal', inverted: false },
-      { text: `${totalPnl >= 0 ? '+' : ''}${formatPrice(totalPnl)} ${formatPercent(totalPnlPct)}`, style: 'meta', inverted: false },
+      { text: `Portfolio  ${actionBar}`, style: 'normal', inverted: false },
+      { text: '', style: 'separator', inverted: false },
       ...list,
     ],
   });
 }
 
-function buildPortfolioColumns(state: AppState): { labels: string; values: string; detail: string } {
+function buildPortfolioSplit(state: AppState): { header: string; panes: string[] } {
   const holdings = state.portfolio;
   const totalValue = holdings.reduce((sum, h) => {
     const q = state.quotes[h.symbol];
@@ -312,58 +414,86 @@ function buildPortfolioColumns(state: AppState): { labels: string; values: strin
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
-  const labelLines: string[] = ['P&L'];
-  const valueLines: string[] = [`${totalPnl >= 0 ? '+' : ''}${formatPrice(totalPnl)}`];
-  const detailLines: string[] = [`${formatPercent(totalPnlPct)}`];
+  const SCROLL_BASE = 100;
+  const hi = state.highlightedIndex;
+  const isScrollMode = hi >= SCROLL_BASE;
+  const scrollOffset = isScrollMode ? hi - SCROLL_BASE : 0;
+  const buttonIdx = isScrollMode ? -1 : hi;
+
+  const buttons = ['Detail', 'Chart'];
+  const activeLabel = isScrollMode ? 'Detail' : null;
+  const actionBar = buildActionBar(buttons, buttonIdx, activeLabel, false);
+
+  const header = renderTextPageLines(glassHeader('Portfolio', actionBar));
 
   if (holdings.length === 0) {
-    labelLines.push('', 'No holdings');
-    valueLines.push('', '');
-    detailLines.push('', 'Add from web');
-    return {
-      labels: labelLines.join('\n'),
-      values: valueLines.join('\n'),
-      detail: detailLines.join('\n'),
-    };
+    return { header, panes: ['No holdings yet', 'Add from web', ''] };
   }
 
-  const maxVisible = 5;
-  const hi = Math.min(state.highlightedIndex, holdings.length - 1);
-  const winStart = slidingWindowStart(hi, holdings.length, maxVisible);
+  if (!isScrollMode) {
+    // Button mode: summary view
+    const col1: string[] = ['● Total Value', `● P&L`, `● Holdings`, ''];
+    const col2: string[] = [`$${formatPrice(totalValue)}`, `${totalPnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(totalPnl))}`, `${holdings.length}`, ''];
+    const col3: string[] = ['', `${formatPercent(totalPnlPct)}`, '', ''];
+
+    const sorted = [...holdings].sort((a, b) => {
+      const va = (state.quotes[a.symbol]?.price ?? a.avgCost) * a.quantity;
+      const vb = (state.quotes[b.symbol]?.price ?? b.avgCost) * b.quantity;
+      return vb - va;
+    });
+    for (let rank = 0; rank < Math.min(sorted.length, 4); rank++) {
+      const h = sorted[rank]!;
+      const q = state.quotes[h.symbol];
+      const mv = (q?.price ?? h.avgCost) * h.quantity;
+      const pct = h.avgCost > 0 ? (((q?.price ?? h.avgCost) - h.avgCost) / h.avgCost) * 100 : 0;
+      const alloc = totalValue > 0 ? (mv / totalValue) * 100 : 0;
+      const arrow = pct >= 0 ? '▲' : '▼';
+      const star = rank === 0 ? '★' : '☆';
+      col1.push(`  ${star} ${truncateText(h.symbol, 6)}`);
+      col2.push(`$${truncateText(formatPrice(mv), 9)}`);
+      col3.push(`${arrow} ${alloc.toFixed(0)}%`);
+    }
+
+    return { header, panes: [col1.join('\n'), col2.join('\n'), col3.join('\n')] };
+  }
+
+  // Detail scroll mode: scrollable holdings list
+  const maxVisible = 7;
+  const si = Math.min(scrollOffset, holdings.length - 1);
+  const winStart = slidingWindowStart(si, holdings.length, maxVisible);
   const winEnd = Math.min(holdings.length, winStart + maxVisible);
 
-  labelLines.push(winStart > 0 ? '  \u25B2' : '');
-  valueLines.push('');
-  detailLines.push('');
+  const col1: string[] = [];
+  const col2: string[] = [];
+  const col3: string[] = [];
+
+  if (winStart > 0) { col1.push('  \u25B2'); col2.push(''); col3.push(''); }
 
   for (let i = winStart; i < winEnd; i++) {
     const holding = holdings[i]!;
     const quote = state.quotes[holding.symbol];
     const marketValue = (quote?.price ?? holding.avgCost) * holding.quantity;
     const pct = holding.avgCost > 0 ? (((quote?.price ?? holding.avgCost) - holding.avgCost) / holding.avgCost) * 100 : 0;
-    labelLines.push(`${i === hi ? '\u25B6 ' : '  '}${truncateText(holding.symbol, 8)}`);
-    valueLines.push(`$${truncateText(formatPrice(marketValue), 9)}`);
-    detailLines.push(`${holding.quantity}u ${formatPercent(pct)}`);
+    col1.push(`${i === si ? '\u25B6 ' : '  '}${truncateText(holding.symbol, 8)}`);
+    col2.push(`$${truncateText(formatPrice(marketValue), 9)}`);
+    col3.push(`${holding.quantity}u ${formatPercent(pct)}`);
   }
 
-  if (winEnd < holdings.length) {
-    labelLines.push('  \u25BC');
-    valueLines.push('');
-    detailLines.push('');
-  }
+  if (winEnd < holdings.length) { col1.push('  \u25BC'); col2.push(''); col3.push(''); }
 
-  return {
-    labels: labelLines.join('\n'),
-    values: valueLines.join('\n'),
-    detail: detailLines.join('\n'),
-  };
+  return { header, panes: [col1.join('\n'), col2.join('\n'), col3.join('\n')] };
 }
 
-function buildHoldingDetailText(state: AppState, time: string): string {
+function buildHoldingDetailSplit(state: AppState): { header: string; panes: string[] } {
   const holding = state.selectedHoldingId
     ? state.portfolio.find((item) => item.id === state.selectedHoldingId) ?? null
     : null;
-  if (!holding) return `Holding${' '.repeat(20)}${time}\n\nNo holding selected`;
+
+  const header = renderTextPageLines(glassHeader(
+    holding ? `${holding.symbol}  ${holding.assetType.toUpperCase()}` : 'Holding',
+  ));
+
+  if (!holding) return { header, panes: ['No holding selected', '', ''] };
 
   const quote = state.quotes[holding.symbol];
   const currentPrice = quote?.price ?? holding.avgCost;
@@ -372,18 +502,37 @@ function buildHoldingDetailText(state: AppState, time: string): string {
   const pnl = marketValue - costBasis;
   const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
 
-  return [
-    `${holding.symbol}${' '.repeat(Math.max(1, 28 - holding.symbol.length - time.length))}${time}`,
-    `${holding.assetType.toUpperCase()}`,
+  const col1 = [
+    '● Price',
+    '● Qty',
+    '● Avg Cost',
+    '● Value',
+    '● P&L',
+  ];
+
+  const col2 = [
+    `$${formatPrice(currentPrice)}`,
+    `${holding.quantity}`,
+    `$${formatPrice(holding.avgCost)}`,
+    `$${formatPrice(marketValue)}`,
+    `${pnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(pnl))}`,
+  ];
+
+  const col3 = [
+    quote ? `${formatPercent(quote.changePercent)}` : '',
     '',
-    `Price  $${formatPrice(currentPrice)}`,
-    `Qty    ${holding.quantity}`,
-    `Avg    $${formatPrice(holding.avgCost)}`,
-    `Value  $${formatPrice(marketValue)}`,
-    `PnL    ${pnl >= 0 ? '+' : ''}${formatPrice(pnl)} ${formatPercent(pnlPct)}`,
-    quote ? `Range  $${formatPrice(quote.low)}-$${formatPrice(quote.high)}` : '',
-    quote ? `Vol    ${formatVolume(quote.volume)}` : '',
-  ].join('\n');
+    `$${formatPrice(costBasis)}`,
+    '',
+    `${formatPercent(pnlPct)}`,
+  ];
+
+  if (quote) {
+    col1.push('', '▼ Low', '▲ High', '● Vol');
+    col2.push('', `$${formatPrice(quote.low)}`, `$${formatPrice(quote.high)}`, `${formatVolume(quote.volume)}`);
+    col3.push('', '', '', '');
+  }
+
+  return { header, panes: [col1.join('\n'), col2.join('\n'), col3.join('\n')] };
 }
 
 function buildAlertsText(state: AppState, time: string): string {
@@ -457,12 +606,12 @@ function buildOverviewColumns(state: AppState): { labels: string; values: string
   }, 0);
 
   const labels = [
-    'Watchlist',
-    'Gainers',
-    'Losers',
-    'Flat',
-    'Volume',
-    'Holdings',
+    '● Watchlist',
+    '● Gainers',
+    '● Losers',
+    '● Flat',
+    '● Volume',
+    '● Holdings',
   ].join('\n');
 
   const values = [
@@ -475,13 +624,13 @@ function buildOverviewColumns(state: AppState): { labels: string; values: string
   ].join('\n');
 
   const detail = [
-    'Best',
+    '◆ Best',
     best ? `${best.symbol} ${formatPercent(best.changePercent)}` : '--',
     '',
-    'Worst',
+    '◆ Worst',
     worst ? `${worst.symbol} ${formatPercent(worst.changePercent)}` : '--',
     '',
-    'Portfolio',
+    '■ Portfolio',
     state.portfolio.length > 0 ? `$${formatPrice(portfolioValue)}` : '--',
   ].join('\n');
 
@@ -606,9 +755,11 @@ function buildWatchlistColumns(state: AppState): { sym: string; price: string; p
   const lang = state.settings.language;
   const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   const hi = state.highlightedIndex;
-  const totalItems = state.settings.graphics.length;
+  const favSet = new Set(state.favoriteSymbols);
+  const sortedGraphics = [...state.settings.graphics].sort((a, b) => (favSet.has(a.symbol) ? 0 : 1) - (favSet.has(b.symbol) ? 0 : 1));
+  const totalItems = sortedGraphics.length;
 
-  const MAX_VISIBLE = 5;
+  const MAX_VISIBLE = 7;
 
   // Sliding window
   const winStart = slidingWindowStart(hi, totalItems, MAX_VISIBLE);
@@ -616,13 +767,14 @@ function buildWatchlistColumns(state: AppState): { sym: string; price: string; p
 
   // Column 1: title + cursor + symbol
   const symLines: string[] = [];
-  symLines.push(t('watchlist.symbol', lang));
+  symLines.push(`  ${t('watchlist.symbol', lang)}`);
   symLines.push(winStart > 0 ? '  \u25B2' : '');
   for (let i = winStart; i < winEnd; i++) {
-    const g = state.settings.graphics[i]!;
+    const g = sortedGraphics[i]!;
     const res = formatResolutionShort(g.resolution);
+    const star = favSet.has(g.symbol) ? '★ ' : '';
     const cursor = i === hi ? '\u25B6 ' : '  ';
-    symLines.push(`${cursor}${g.symbol} ${res}`);
+    symLines.push(`${cursor}${star}${g.symbol} ${res}`);
   }
   while (symLines.length < 2 + MAX_VISIBLE) symLines.push('');
   symLines.push(winEnd < totalItems ? '  \u25BC' : '');
@@ -672,9 +824,6 @@ function buildFullText(state: AppState): string {
 
     case 'portfolio':
       return buildPortfolioText(state, time);
-
-    case 'holding-detail':
-      return buildHoldingDetailText(state, time);
 
     case 'alerts':
       return buildAlertsText(state, time);
@@ -726,6 +875,42 @@ function buildFullText(state: AppState): string {
 }
 
 /** Text below chart: header + scrollable candle table. */
+function buildPortfolioChartText(state: AppState): string {
+  const lang = state.settings.language;
+  const holdings = state.portfolio;
+  const totalValue = holdings.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+  const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  const periods = ['1D', '1W', '1M', '1Y'];
+  const periodIdx = periods.indexOf(state.portfolioChartPeriod);
+  const periodBar = buildActionBar(periods, periodIdx, state.portfolioChartPeriod, false);
+
+  const lines: string[] = [];
+  lines.push(`Portfolio $${formatPrice(totalValue)}  ${periodBar}`);
+  lines.push('\u2500'.repeat(28));
+
+  if (state.portfolioChartLoading) {
+    lines.push('Loading chart...');
+  } else if (state.portfolioChartData.length > 0) {
+    const first = state.portfolioChartData[0]!.value;
+    const last = state.portfolioChartData[state.portfolioChartData.length - 1]!.value;
+    const change = last - first;
+    const changePct = first > 0 ? (change / first) * 100 : 0;
+    lines.push(`Period: ${change >= 0 ? '+' : ''}$${formatPrice(Math.abs(change))} ${formatPercent(changePct)}`);
+    lines.push(`Total P&L: ${totalPnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(totalPnl))}`);
+  } else {
+    lines.push('No chart data');
+    lines.push(`P&L: ${totalPnl >= 0 ? '+' : ''}${formatPrice(totalPnl)}`);
+  }
+
+  return lines.join('\n');
+}
+
 function buildChartTopText(state: AppState): string {
   const lang = state.settings.language;
   const g = state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
@@ -736,7 +921,7 @@ function buildChartTopText(state: AppState): string {
   const res = formatResolutionShort(g.resolution);
   const inBtnMode = !state.candleNavActive && !state.tfNavActive;
   const activeLabel = state.tfNavActive ? res : state.candleNavActive ? t('chart.nav', lang) : null;
-  const selectedIdx = inBtnMode ? state.highlightedIndex : 0;
+  const selectedIdx = inBtnMode ? state.highlightedIndex : -1;
   const btnBar = buildActionBar([res, t('chart.nav', lang)], selectedIdx, activeLabel, state.candleFlashPhase);
 
   const lines: string[] = [];
@@ -796,6 +981,9 @@ function shouldUpdateDisplay(state: AppState, prev: AppState): boolean {
   if (state.selectedNewsLoading !== prev.selectedNewsLoading) return true;
   if (state.loading !== prev.loading) return true;
   if (state.lastError !== prev.lastError) return true;
+  if (state.portfolioChartPeriod !== prev.portfolioChartPeriod) return true;
+  if (state.portfolioChartData !== prev.portfolioChartData) return true;
+  if (state.portfolioChartLoading !== prev.portfolioChartLoading) return true;
   return false;
 }
 
@@ -806,6 +994,15 @@ function getSelectedGraphic(state: AppState): GraphicEntry | undefined {
 }
 
 function handleSideEffects(state: AppState, prev: AppState): void {
+  // Fetch portfolio chart data when entering chart screen or changing period
+  if (state.screen === 'portfolio-chart') {
+    const enteringChart = state.screen !== prev.screen;
+    const periodChanged = state.portfolioChartPeriod !== prev.portfolioChartPeriod;
+    if (enteringChart || periodChanged) {
+      fetchAndRenderPortfolioChart();
+    }
+  }
+
   if (state.screen === 'stock-detail' && state.selectedGraphicId) {
     const graphic = getSelectedGraphic(state);
     if (graphic) {
@@ -913,6 +1110,11 @@ async function loadSettings(): Promise<void> {
   try {
     const alerts = await storageGet<import('../state/types').PriceAlert[]>('even-market:alerts', []);
     if (alerts.length > 0) store.dispatch({ type: 'ALERTS_LOADED', alerts });
+  } catch { /* ignore */ }
+
+  try {
+    const favs = await storageGet<string[]>('even-market:favorites', []);
+    if (favs && favs.length > 0) store.dispatch({ type: 'FAVORITES_LOADED', symbols: favs });
   } catch { /* ignore */ }
 }
 

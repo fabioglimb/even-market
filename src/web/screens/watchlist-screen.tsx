@@ -6,7 +6,8 @@ import { useSettings } from '../hooks/use-settings';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { ListItem, Badge, CategoryFilter, Dialog, FileUpload, Button, Select } from 'even-toolkit/web';
 import { TickerInput } from '../components/shared/ticker-input';
-import { formatPrice, formatPercent, formatResolutionShort, displaySymbol } from '../../utils/format';
+import { formatPercent, formatResolutionShort, displaySymbol } from '../../utils/format';
+import { useCurrency } from '../hooks/use-currency';
 import { t } from '../../utils/i18n';
 import type { AssetType } from '../../state/types';
 import { parseWatchlistImportFile } from '../lib/import-market-file';
@@ -36,7 +37,9 @@ function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: num
   const graphics = useGraphics();
   const settings = useSettings();
   const lang = settings.language;
+  const currency = useCurrency();
   const filter = useSelector((s) => s.watchlistFilter);
+  const favoriteSymbols = useSelector((s) => s.favoriteSymbols);
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -161,6 +164,11 @@ function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: num
               key={graphic.id}
               title={displaySymbol(graphic.symbol)}
               subtitle={graphic.assetType ?? 'stock'}
+              leading={
+                <button type="button" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_FAVORITE', symbol: graphic.symbol }); }} className="text-[17px] cursor-pointer">
+                  {favoriteSymbols.includes(graphic.symbol) ? '★' : '☆'}
+                </button>
+              }
               onPress={() => dispatch({ type: 'SELECT_GRAPHIC', graphicId: graphic.id })}
               onDelete={() => dispatch({ type: 'GRAPHIC_REMOVE', graphicId: graphic.id })}
               trailing={
@@ -169,7 +177,7 @@ function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: num
                     {formatResolutionShort(graphic.resolution)}
                   </span>
                   <span className="w-20 text-right font-mono tabular-nums text-[13px] tracking-[-0.13px]">
-                    {quote ? formatPrice(quote.price) : '--'}
+                    {quote ? currency.format(quote.price, graphic.assetType) : '--'}
                   </span>
                   <span className="w-20 text-right">
                     <Badge variant={isUp ? 'positive' : 'negative'}>

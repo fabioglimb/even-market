@@ -66,7 +66,14 @@ export function reduce(state: AppState, action: Action): AppState {
         return { ...state, screen: 'home', highlightedIndex: 0 };
       }
       if (state.screen === 'portfolio') {
+        // If in scroll mode, go back to button mode
+        if (state.highlightedIndex >= 100) {
+          return { ...state, highlightedIndex: 0 }; // Detail button
+        }
         return { ...state, screen: 'home', highlightedIndex: 0 };
+      }
+      if (state.screen === 'portfolio-chart') {
+        return { ...state, screen: 'portfolio', highlightedIndex: 0 };
       }
       if (state.screen === 'holding-detail') {
         return { ...state, screen: 'portfolio', selectedHoldingId: null, highlightedIndex: 0 };
@@ -123,8 +130,32 @@ export function reduce(state: AppState, action: Action): AppState {
         // Wrap within graphics
         return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.settings.graphics.length) };
       }
-      if (state.screen === 'portfolio' && state.portfolio.length > 0) {
-        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.portfolio.length) };
+      if (state.screen === 'portfolio') {
+        const SCROLL_BASE = 100;
+        if (state.highlightedIndex >= SCROLL_BASE) {
+          // Scroll mode: navigate holdings
+          const offset = state.highlightedIndex - SCROLL_BASE;
+          const maxOffset = Math.max(0, state.portfolio.length - 1);
+          const newOffset = action.direction === 'down'
+            ? Math.min(offset + 1, maxOffset)
+            : Math.max(offset - 1, 0);
+          return { ...state, highlightedIndex: SCROLL_BASE + newOffset };
+        }
+        // Button mode: cycle Detail(0), Chart(1)
+        const btnCount = 2;
+        return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', btnCount) };
+      }
+      if (state.screen === 'portfolio-chart') {
+        // Cycle through period options: 1D, 1W, 1M, 1Y
+        const periods: import('./types').PortfolioChartPeriod[] = ['1D', '1W', '1M', '1Y'];
+        const curIdx = periods.indexOf(state.portfolioChartPeriod);
+        const newIdx = action.direction === 'down'
+          ? Math.min(curIdx + 1, periods.length - 1)
+          : Math.max(curIdx - 1, 0);
+        if (periods[newIdx] !== state.portfolioChartPeriod) {
+          return { ...state, portfolioChartPeriod: periods[newIdx]!, portfolioChartData: [], portfolioChartLoading: true };
+        }
+        return state;
       }
       if (state.screen === 'alerts' && state.alerts.length > 0) {
         return { ...state, highlightedIndex: wrapIndex(state.highlightedIndex, action.direction === 'down' ? 'down' : 'up', state.alerts.length) };
@@ -169,6 +200,31 @@ export function reduce(state: AppState, action: Action): AppState {
         return { ...state, settingsEditActive: true };
       }
       if (state.screen === 'portfolio') {
+        const SCROLL_BASE = 100;
+        if (state.highlightedIndex >= SCROLL_BASE) {
+          // In scroll mode: tap selects holding for detail
+          const offset = state.highlightedIndex - SCROLL_BASE;
+          const holding = state.portfolio[offset];
+          if (holding) {
+            return { ...state, screen: 'holding-detail', selectedHoldingId: holding.id, highlightedIndex: 0 };
+          }
+          return { ...state, highlightedIndex: 0 };
+        }
+        // Button mode
+        if (state.highlightedIndex === 0) {
+          // Detail — enter scroll mode to browse holdings
+          if (state.portfolio.length > 0) {
+            return { ...state, highlightedIndex: SCROLL_BASE };
+          }
+          return state;
+        }
+        if (state.highlightedIndex === 1) {
+          // Chart — glasses only, don't change webview screen
+          if (state.portfolio.length > 0) {
+            return { ...state, screen: 'portfolio-chart', highlightedIndex: 0, portfolioChartData: [], portfolioChartLoading: true };
+          }
+          return state;
+        }
         const holding = state.portfolio[state.highlightedIndex];
         if (holding) {
           return {
@@ -427,6 +483,26 @@ export function reduce(state: AppState, action: Action): AppState {
         selectedNewsLoading: true,
         highlightedIndex: 0,
       };
+
+    case 'FX_RATES_LOADED':
+      return { ...state, fxRates: action.rates, fxRatesTimestamp: Date.now() };
+
+    case 'PORTFOLIO_CHART_LOADING':
+      return { ...state, portfolioChartLoading: true };
+
+    case 'PORTFOLIO_CHART_LOADED':
+      return { ...state, portfolioChartData: action.data, portfolioChartLoading: false };
+
+    case 'PORTFOLIO_CHART_PERIOD':
+      return { ...state, portfolioChartPeriod: action.period, portfolioChartData: [], portfolioChartLoading: true };
+
+    case 'TOGGLE_FAVORITE': {
+      const isFav = state.favoriteSymbols.includes(action.symbol);
+      return { ...state, favoriteSymbols: isFav ? state.favoriteSymbols.filter((s) => s !== action.symbol) : [...state.favoriteSymbols, action.symbol] };
+    }
+
+    case 'FAVORITES_LOADED':
+      return { ...state, favoriteSymbols: action.symbols };
 
     default:
       return state;

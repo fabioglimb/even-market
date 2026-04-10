@@ -1,7 +1,7 @@
 import type { StockQuote, Candle } from '../state/types';
 
-// Always use the hosted Vercel proxy so QR/dev and packaged builds hit the same endpoint.
-const BASE_URL = 'https://even-market.vercel.app/yf-api';
+// Cloudflare Worker proxy — 100K req/day free tier (3M/month)
+const BASE_URL = 'https://even-proxy.fabio-glimb.workers.dev/yf';
 
 // Forex pairs that need =X suffix on Yahoo Finance
 // Forex pairs that use =X suffix on Yahoo Finance

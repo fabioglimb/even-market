@@ -7,6 +7,7 @@ export type Screen =
   | 'stock-detail'
   | 'settings'
   | 'portfolio'
+  | 'portfolio-chart'
   | 'holding-detail'
   | 'holding-form'
   | 'alerts'
@@ -14,7 +15,10 @@ export type Screen =
   | 'news'
   | 'news-detail';
 
+export type PortfolioChartPeriod = '1D' | '1W' | '1M' | '1Y';
+
 export type AssetType = 'stock' | 'crypto' | 'forex' | 'commodity';
+export type DisplayCurrency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CHF' | 'CAD' | 'AUD' | 'CNY';
 
 export interface StockQuote {
   symbol: string;
@@ -93,6 +97,7 @@ export interface Settings {
   graphics: GraphicEntry[];
   chartType: ChartType;
   language: MarketLanguage;
+  displayCurrency: DisplayCurrency;
 }
 
 export interface AppState {
@@ -121,6 +126,12 @@ export interface AppState {
   selectedNewsId: string | null;
   selectedNewsContent: string | null;
   selectedNewsLoading: boolean;
+  fxRates: Record<string, number>;
+  fxRatesTimestamp: number;
+  favoriteSymbols: string[];
+  portfolioChartPeriod: PortfolioChartPeriod;
+  portfolioChartData: Array<{ time: number; value: number }>;
+  portfolioChartLoading: boolean;
 }
 
 export const DEFAULT_GRAPHICS: GraphicEntry[] = [
@@ -138,6 +149,7 @@ export const DEFAULT_SETTINGS: Settings = {
   graphics: [...DEFAULT_GRAPHICS],
   chartType: 'sparkline',
   language: 'en' as MarketLanguage,
+  displayCurrency: 'USD' as DisplayCurrency,
 };
 
 export const initialState: AppState = {
@@ -166,4 +178,10 @@ export const initialState: AppState = {
   selectedNewsId: null,
   selectedNewsContent: null,
   selectedNewsLoading: false,
+  fxRates: {},
+  fxRatesTimestamp: 0,
+  favoriteSymbols: [],
+  portfolioChartPeriod: '1M' as PortfolioChartPeriod,
+  portfolioChartData: [],
+  portfolioChartLoading: false,
 };

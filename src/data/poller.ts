@@ -3,6 +3,7 @@ import type { ChartResolution, GraphicEntry } from '../state/types';
 import { getQuotes, getCandles, getCandlesByPeriod, resolutionToRange, resolutionToHistoryStep } from './yahoo-finance';
 import { getCryptoQuotes, getCryptoCandles, resolutionToCgDays } from './coingecko';
 import { fetchMarketNews } from './news';
+import { fetchFxRates } from './forex';
 import { storageSet } from './bridge-storage';
 
 const PORTFOLIO_KEY = 'even-market:portfolio';
@@ -22,6 +23,7 @@ export class Poller {
     this.disposed = false;
     this.pollQuotes();
     this.pollNews();
+    this.pollFxRates();
     this.startQuoteInterval();
     this.startNewsInterval();
 
@@ -32,6 +34,10 @@ export class Poller {
       if (state.settings.graphics !== prev.settings.graphics) {
         this.pollQuotes();
       }
+      if (state.settings.displayCurrency !== prev.settings.displayCurrency) {
+        this.pollFxRates();
+        this.pollQuotes(); // re-fetch crypto in new currency
+      }
       // Persist portfolio changes
       if (state.portfolio !== prev.portfolio) {
         storageSet(PORTFOLIO_KEY, state.portfolio);
@@ -39,6 +45,10 @@ export class Poller {
       // Persist alert changes
       if (state.alerts !== prev.alerts) {
         storageSet(ALERTS_KEY, state.alerts);
+      }
+      // Persist favorites
+      if (state.favoriteSymbols !== prev.favoriteSymbols) {
+        storageSet('even-market:favorites', state.favoriteSymbols);
       }
     });
   }
@@ -54,10 +64,25 @@ export class Poller {
     this.newsTimer = setInterval(() => this.pollNews(), 5 * 60 * 1000);
   }
 
+  async pollFxRates(): Promise<void> {
+    if (this.disposed) return;
+    const state = this.store.getState();
+    if (state.settings.displayCurrency === 'USD') return;
+    // Refresh if stale (>5 min)
+    if (state.fxRatesTimestamp > 0 && Date.now() - state.fxRatesTimestamp < 5 * 60 * 1000) return;
+    try {
+      const rates = await fetchFxRates();
+      if (!this.disposed) {
+        this.store.dispatch({ type: 'FX_RATES_LOADED', rates });
+      }
+    } catch { /* ignore */ }
+  }
+
   async pollQuotes(): Promise<void> {
     if (this.disposed) return;
     const state = this.store.getState();
     const graphics = state.settings.graphics;
+    const displayCurrency = state.settings.displayCurrency.toLowerCase();
 
     // Split into Yahoo (stock/forex/commodity) and CoinGecko (crypto)
     const yahooSymbols: string[] = [];
@@ -69,7 +94,7 @@ export class Poller {
       seen.add(g.symbol);
 
       if (g.assetType === 'crypto' && g.geckoId) {
-        cryptoCoins.push({ geckoId: g.geckoId, symbol: g.symbol, quoteCurrency: g.quoteCurrency });
+        cryptoCoins.push({ geckoId: g.geckoId, symbol: g.symbol, quoteCurrency: displayCurrency });
       } else {
         yahooSymbols.push(g.symbol);
       }
@@ -80,7 +105,7 @@ export class Poller {
       if (seen.has(h.symbol)) continue;
       seen.add(h.symbol);
       if (h.assetType === 'crypto' && h.geckoId) {
-        cryptoCoins.push({ geckoId: h.geckoId, symbol: h.symbol, quoteCurrency: h.quoteCurrency });
+        cryptoCoins.push({ geckoId: h.geckoId, symbol: h.symbol, quoteCurrency: displayCurrency });
       } else {
         yahooSymbols.push(h.symbol);
       }

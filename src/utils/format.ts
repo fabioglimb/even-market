@@ -1,14 +1,31 @@
 import type { ChartResolution } from '../state/types';
 
-export function formatPrice(price: number): string {
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$', EUR: '€', GBP: '£', JPY: '¥', CHF: 'CHF ',
+  CAD: 'C$', AUD: 'A$', CNY: '¥',
+};
+
+export function getCurrencySymbol(currency: string): string {
+  return CURRENCY_SYMBOLS[currency] ?? currency + ' ';
+}
+
+export function formatPrice(price: number, currency?: string): string {
   if (price === 0 || isNaN(price)) return '---.--';
-  return price.toFixed(2);
+  const prefix = currency ? getCurrencySymbol(currency) : '';
+  const decimals = currency === 'JPY' ? 0 : 2;
+  return `${prefix}${price.toFixed(decimals)}`;
+}
+
+export function convertPrice(priceUsd: number, currency: string, fxRates: Record<string, number>): number {
+  if (currency === 'USD' || !fxRates[currency]) return priceUsd;
+  return priceUsd * fxRates[currency];
 }
 
 export function formatPercent(pct: number): string {
   if (isNaN(pct)) return '--.--';
+  const arrow = pct >= 0 ? '▲' : '▼';
   const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(2)}%`;
+  return `${arrow} ${sign}${pct.toFixed(2)}%`;
 }
 
 export function formatVolume(vol: number): string {

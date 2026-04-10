@@ -66,7 +66,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {},
-    dedupe: ['react', 'react-dom', '@evenrealities/even_hub_sdk', '@jappyjan/even-better-sdk', 'upng-js'],
+    dedupe: ['react', 'react-dom', '@evenrealities/even_hub_sdk', 'upng-js'],
   },
   server: {
     host: '0.0.0.0',

@@ -2,9 +2,12 @@ import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { useQuotes } from '../hooks/use-quotes';
 import { useGraphics } from '../hooks/use-graphics';
-import { ListItem, Badge, EmptyState, Button, Card, Dialog, Input, Select, ConfirmDialog, PieChart, FileUpload } from 'even-toolkit/web';
+import { ListItem, Badge, EmptyState, Button, Card, Dialog, Input, Select, ConfirmDialog, PieChart, FileUpload, CategoryFilter } from 'even-toolkit/web';
 import { IcEditChecklist } from 'even-toolkit/web/icons/svg-icons';
-import { formatPrice, formatPercent, displaySymbol } from '../../utils/format';
+import { formatPercent, displaySymbol } from '../../utils/format';
+import { useCurrency } from '../hooks/use-currency';
+import { PortfolioLineChart } from '../components/shared/portfolio-line-chart';
+import { fetchPortfolioHistory, type PortfolioPeriod, type PortfolioValuePoint } from '../../data/portfolio-history';
 import type { PortfolioHolding, AssetType } from '../../state/types';
 import { parsePortfolioImportFile } from '../lib/import-market-file';
 import { exportPortfolioFile, type MarketExportFormat } from '../lib/export-market-file';
@@ -14,6 +17,7 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
   const portfolio = useSelector((s) => s.portfolio);
   const quotes = useQuotes();
   const graphics = useGraphics();
+  const currency = useCurrency();
 
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -23,6 +27,22 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
   const [exportFormat, setExportFormat] = useState<MarketExportFormat>('csv');
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [chartPeriod, setChartPeriod] = useState<PortfolioPeriod>('1M');
+  const [chartData, setChartData] = useState<PortfolioValuePoint[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const fxRates = useSelector((s) => s.fxRates);
+
+  // Fetch portfolio history when period or portfolio changes
+  useEffect(() => {
+    if (portfolio.length === 0) { setChartData([]); return; }
+    let cancelled = false;
+    setChartLoading(true);
+    fetchPortfolioHistory(portfolio, chartPeriod, currency.displayCurrency, fxRates)
+      .then((data) => { if (!cancelled) setChartData(data); })
+      .catch(() => { if (!cancelled) setChartData([]); })
+      .finally(() => { if (!cancelled) setChartLoading(false); });
+    return () => { cancelled = true; };
+  }, [chartPeriod, portfolio.length, currency.displayCurrency]);
 
   // Open form when navbar + button is pressed
   useEffect(() => {
@@ -50,10 +70,11 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
 
   const totalValue = portfolio.reduce((sum, h) => {
     const q = quotes[h.symbol];
-    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+    const price = q ? currency.convert(q.price, h.assetType) : currency.convert(h.avgCost, h.assetType);
+    return sum + price * h.quantity;
   }, 0);
 
-  const totalCost = portfolio.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalCost = portfolio.reduce((sum, h) => sum + currency.convert(h.avgCost, h.assetType) * h.quantity, 0);
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
   const allocationTotals = new Map<string, number>();
@@ -169,13 +190,13 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
           <div>
             <div className="text-[11px] tracking-[-0.11px] text-text-dim">Total Value</div>
             <div className="text-[20px] tracking-[-0.6px] font-normal font-mono tabular-nums">
-              ${formatPrice(totalValue)}
+              {currency.format(totalValue)}
             </div>
           </div>
           <div className="text-right">
             <div className="text-[11px] tracking-[-0.11px] text-text-dim">P&L</div>
             <Badge variant={totalPnl >= 0 ? 'positive' : 'negative'}>
-              {totalPnl >= 0 ? '+' : ''}{formatPrice(totalPnl)} ({formatPercent(totalPnlPct)})
+              {totalPnl >= 0 ? '+' : ''}{currency.format(totalPnl)} ({formatPercent(totalPnlPct)})
             </Badge>
           </div>
         </div>
@@ -190,6 +211,24 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
         )}
       </Card>
 
+      {/* Portfolio chart */}
+      {portfolio.length > 0 && (
+        <Card className="mb-3">
+          <div className="mb-3">
+            <CategoryFilter
+              categories={['1D', '1W', '1M', '1Y']}
+              selected={chartPeriod}
+              onSelect={(p) => setChartPeriod(p as PortfolioPeriod)}
+            />
+          </div>
+          <PortfolioLineChart
+            data={chartData}
+            loading={chartLoading}
+            currency={currency.displayCurrency}
+          />
+        </Card>
+      )}
+
       {/* Holdings list */}
       <div className="rounded-[6px] overflow-hidden bg-surface">
         {portfolio.length === 0 ? (
@@ -200,6 +239,7 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
               key={holding.id}
               holding={holding}
               quote={quotes[holding.geckoId ?? holding.symbol]}
+              currency={currency}
               onPress={() => dispatch({ type: 'SELECT_HOLDING', holdingId: holding.id })}
               onDelete={() => setDeleteTarget(holding.id)}
             />
@@ -228,7 +268,7 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
             />
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] tracking-[-0.11px] text-text-dim">Average Cost ($)</span>
+            <span className="text-[11px] tracking-[-0.11px] text-text-dim">Average Cost ({currency.symbol.trim()})</span>
             <Input
               placeholder="0.00"
               type="number"
@@ -310,26 +350,28 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
 interface HoldingRowProps {
   holding: PortfolioHolding;
   quote?: { price: number; changePercent: number };
+  currency: ReturnType<typeof useCurrency>;
   onPress: () => void;
   onDelete: () => void;
 }
 
-function HoldingRow({ holding, quote, onPress, onDelete }: HoldingRowProps) {
-  const currentPrice = quote?.price ?? holding.avgCost;
+function HoldingRow({ holding, quote, currency, onPress, onDelete }: HoldingRowProps) {
+  const currentPrice = currency.convert(quote?.price ?? holding.avgCost, holding.assetType);
+  const costConverted = currency.convert(holding.avgCost, holding.assetType);
   const marketValue = currentPrice * holding.quantity;
-  const pnl = (currentPrice - holding.avgCost) * holding.quantity;
-  const pnlPct = holding.avgCost > 0 ? ((currentPrice - holding.avgCost) / holding.avgCost) * 100 : 0;
+  const pnl = (currentPrice - costConverted) * holding.quantity;
+  const pnlPct = costConverted > 0 ? ((currentPrice - costConverted) / costConverted) * 100 : 0;
 
   return (
     <ListItem
       title={displaySymbol(holding.symbol)}
-      subtitle={`${holding.quantity} @ $${formatPrice(holding.avgCost)}`}
+      subtitle={`${holding.quantity} @ ${currency.format(costConverted)}`}
       onPress={onPress}
       onDelete={onDelete}
       trailing={
         <div className="text-right">
           <div className="text-[13px] tracking-[-0.13px] font-mono tabular-nums">
-            ${formatPrice(marketValue)}
+            {currency.format(marketValue)}
           </div>
           <Badge variant={pnl >= 0 ? 'positive' : 'negative'}>
             {formatPercent(pnlPct)}

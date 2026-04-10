@@ -23,7 +23,7 @@ type WebScreen = Screen | 'how-it-works' | 'news-detail';
 const iconProps = { width: 18, height: 18, className: 'text-current' };
 
 // Screens accessible from the drawer menu
-const TOP_LEVEL_SCREENS = new Set(['splash', 'home', 'watchlist', 'settings', 'portfolio', 'alerts', 'overview', 'news']);
+const TOP_LEVEL_SCREENS = new Set(['splash', 'home', 'watchlist', 'settings', 'portfolio', 'portfolio-chart', 'alerts', 'overview', 'news']);
 
 function getScreenTitle(screen: WebScreen, lang: import('../utils/i18n').MarketLanguage): string {
   switch (screen) {
@@ -340,6 +340,7 @@ function renderScreen(
     case 'how-it-works':
       return <HowItWorksScreen />;
     case 'portfolio':
+    case 'portfolio-chart':
       return <PortfolioScreen addTrigger={portfolioAddTrigger} importTrigger={portfolioImportTrigger} exportTrigger={portfolioExportTrigger} />;
     case 'holding-detail':
       return <HoldingDetailScreen />;

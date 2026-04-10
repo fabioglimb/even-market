@@ -1,7 +1,7 @@
 import type { MarketNewsItem } from '../state/types';
 
-const YF_PROXY = 'https://even-market.vercel.app/yf-api';
-const BROWSE_PROXY = 'https://even-browser.vercel.app/__browse_proxy';
+const YF_PROXY = 'https://even-proxy.fabio-glimb.workers.dev/yf';
+const BROWSE_PROXY = 'https://even-proxy.fabio-glimb.workers.dev/browse';
 
 function formatTimeAgo(dateStr?: string | null): string {
   if (!dateStr) return '';
