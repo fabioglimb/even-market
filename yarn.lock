@@ -207,7 +207,7 @@
   resolved "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.27.4.tgz"
   integrity sha512-b7xaGIwdJlht8ZFCvMkpDN6uiSmnxxK56N2GDTMYPr2/gzvfdQN8rTfBsvVKmIVY/X7EM+/hJKEIbbHs9oA4tQ==
 
-"@evenrealities/even_hub_sdk@^0.0.10", "@evenrealities/even_hub_sdk@>=0.0.9":
+"@evenrealities/even_hub_sdk@^0.0.10", "@evenrealities/even_hub_sdk@>=0.0.10":
   version "0.0.10"
   resolved "https://registry.npmjs.org/@evenrealities/even_hub_sdk/-/even_hub_sdk-0.0.10.tgz"
   integrity sha512-95zmlbFzyyh+TxPz5Wq8Ix4IxUDZzo/WJWAUXPQ/83kaU8R78MOYYBgKDM47Yw61LoEn+Ob5GNLDu/T9bj85xA==
@@ -1040,10 +1040,10 @@ etag@1.8.1:
   resolved "https://registry.npmjs.org/etag/-/etag-1.8.1.tgz"
   integrity sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==
 
-even-toolkit@^1.7.0:
-  version "1.7.0"
-  resolved "https://registry.npmjs.org/even-toolkit/-/even-toolkit-1.7.0.tgz"
-  integrity sha512-QTnQ1fr0di0LqS6t5vchS2l+Dhdmkg7spndozEkxVJRe9quw5kHAcMc6VhwpU9MM2uBP9SH491pdmwfWy2Ys3A==
+even-toolkit@^1.7.2:
+  version "1.7.2"
+  resolved "https://registry.npmjs.org/even-toolkit/-/even-toolkit-1.7.2.tgz"
+  integrity sha512-SEHI2Ht4eMbne/6KWcRtfZNgroU4j4YMHwQuwvnAaPqrsYKDHMKtCNP3CY5HKUWzzQZqGe5Sem0PyA4VUmnFEw==
   dependencies:
     react-is "^19.2.4"
     recharts "^3.8.0"
