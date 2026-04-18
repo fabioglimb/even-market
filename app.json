@@ -1,0 +1,24 @@
+{
+  "package_id": "com.evenmarket.g2",
+  "edition": "202601",
+  "name": "ER Market",
+  "version": "0.3.1",
+  "min_sdk_version": "0.0.9",
+  "min_app_version": "2.0.0",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Fetches hosted market data, crypto data, and article content for ER Market.",
+      "whitelist": [
+        "https://even-market.vercel.app",
+        "https://api.coingecko.com",
+        "https://even-browser.vercel.app",
+        "https://www.coingecko.com"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}

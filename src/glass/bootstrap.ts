@@ -1,0 +1,1170 @@
+import { EvenHubBridge } from 'even-toolkit/bridge';
+import type { PageMode } from 'even-toolkit/types';
+import { glassHeader, renderTextPageLines } from 'even-toolkit/types';
+import { notifyTextUpdate } from 'even-toolkit/gestures';
+import { encodeTilesBatch } from 'even-toolkit/png-utils';
+import { IMAGE_TILES, G2_IMAGE_MAX_W, G2_IMAGE_MAX_H } from 'even-toolkit/layout';
+import { activateKeepAlive } from 'even-toolkit/keep-alive';
+import { buildActionBar } from 'even-toolkit/action-bar';
+import { buildScrollableContent, buildScrollableList, DEFAULT_CONTENT_SLOTS, slidingWindowStart } from 'even-toolkit/glass-display-builders';
+import { truncate } from 'even-toolkit/text-utils';
+import type { DisplayData } from 'even-toolkit/types';
+import { createStore } from '../state/store';
+import type { AppState, GraphicEntry, ChartResolution, PriceAlert } from '../state/types';
+import { makeGraphicId } from '../state/types';
+import { getDisplayData } from '../state/selectors';
+import { getLatestTriggeredAlert, getUnreadTriggeredAlertCount, isUnreadTriggeredAlert, sortAlertsForDisplay } from '../state/alert-utils';
+import { filterNewsItems } from '../state/news-utils';
+import { mapEvenHubEvent } from '../input/action-map';
+import { renderPortfolioLineChart } from './line-renderer';
+import { renderToCanvasDirect } from './canvas-renderer';
+import { fetchPortfolioHistory } from '../data/portfolio-history';
+import { formatPrice, formatPercent, formatVolume, formatResolutionShort, formatCandleTime } from '../utils/format';
+import { t, MARKET_LANGUAGES, getLanguageName } from '../utils/i18n';
+import type { MarketLanguage } from '../utils/i18n';
+import { Poller } from '../data/poller';
+import { fetchNewsArticleContent } from '../data/news';
+import { storageSet, storageGet } from '../data/bridge-storage';
+
+type PageLayout = PageMode;
+
+
+let hub: EvenHubBridge | null = null;
+let store: ReturnType<typeof createStore>;
+let poller: Poller;
+let flashTimer: ReturnType<typeof setInterval> | null = null;
+let glassAlertToastActive = false;
+const GLASSES_NEWS_WIDTH = 44;
+const GLASS_ALERT_COL_WIDTH = 12;
+const GLASS_ALERT_CONTENT_ROWS = 4;
+const GLASS_ALERT_FRAME_ROW = '■'.repeat(9);
+
+function buildWideHeader(title: string, time: string, width = GLASSES_NEWS_WIDTH): string {
+  const gap = Math.max(1, width - title.length - time.length);
+  return `${title}${' '.repeat(gap)}${time}`;
+}
+
+function renderDisplayData(data: DisplayData): string {
+  return data.lines.map((line) => {
+    if (line.style === 'separator') return `  ${'─'.repeat(27)}`;
+    if (line.inverted) return `\u25B6 ${line.text}`;
+    return `  ${line.text}`;
+  }).join('\n');
+}
+
+// ── Layout management ──
+
+function getDesiredLayout(state: AppState): PageLayout {
+  if (state.screen === 'splash') return 'splash';
+  if (state.screen === 'home') return 'home' as PageLayout;
+  if (state.screen === 'stock-detail' || state.screen === 'portfolio-chart') return 'chart';
+  if (state.screen === 'watchlist' || state.screen === 'overview') return 'columns';
+  if (state.screen === 'portfolio') return 'split' as PageLayout;
+  if (state.screen === 'holding-detail') return 'columns';
+  return 'text';
+}
+
+function getColumnLayoutContent(state: AppState): string[] | null {
+  switch (state.screen) {
+    case 'watchlist': {
+      const cols = buildWatchlistColumns(state);
+      return [cols.sym, cols.price, cols.pct];
+    }
+    case 'overview': {
+      const cols = buildOverviewColumns(state);
+      return [cols.labels, cols.values, cols.detail];
+    }
+    case 'holding-detail': {
+      const split = buildHoldingDetailSplit(state);
+      return split.panes;
+    }
+    default:
+      return null;
+  }
+}
+
+async function ensureLayout(state: AppState): Promise<void> {
+  if (!hub || !hub.pageReady) return;
+  const desired = getDesiredLayout(state);
+  if (hub.currentLayout === desired) return;
+  if (desired === 'splash') return;
+
+  if (state.screen === 'home') {
+    await hub.switchToHomeLayout(buildHomeText(state));
+  } else if (desired === 'chart') {
+    const chartText = state.screen === 'portfolio-chart' ? buildPortfolioChartText(state) : buildChartTopText(state);
+    await hub.switchToChartLayout(chartText);
+  } else if (desired === 'columns') {
+    const columns = getColumnLayoutContent(state);
+    if (columns) await hub.showColumnPage(columns);
+  } else if (desired === 'split') {
+    const split = buildPortfolioSplit(state);
+    await hub.showSplitPage(split.header, split.panes, { paneWidths: [192, 192, 192] });
+  } else if (state.screen === 'settings') {
+    await hub.switchToSettings(buildFullText(state));
+  } else {
+    await hub.showTextPage(buildFullText(state));
+  }
+}
+
+// ── Text updates (instant) ──
+
+let textInFlight = false;
+let textPending = false;
+
+async function flushText(state: AppState): Promise<void> {
+  if (!hub || !hub.pageReady) return;
+  if (state.screen === 'splash') return;
+  if (glassAlertToastActive) return;
+
+  if (textInFlight) { textPending = true; return; }
+  textInFlight = true;
+  try {
+    const desired = getDesiredLayout(state);
+    if (hub.currentLayout !== desired && desired !== 'splash') {
+      await ensureLayout(state);
+    }
+
+    notifyTextUpdate();
+
+    let updatePromise: Promise<void>;
+    if (state.screen === 'home') {
+      updatePromise = hub.updateHomeText(buildHomeText(state));
+    } else if (hub.currentLayout === 'chart') {
+      const chartText = state.screen === 'portfolio-chart' ? buildPortfolioChartText(state) : buildChartTopText(state);
+      updatePromise = hub.updateChartText(chartText);
+    } else if (hub.currentLayout === 'columns') {
+      const columns = getColumnLayoutContent(state);
+      updatePromise = columns ? hub.updateColumns(columns) : hub.updateText(buildFullText(state));
+    } else if (hub.currentLayout === 'split') {
+      const split = buildPortfolioSplit(state);
+      updatePromise = hub.updateSplitPage(split.header, split.panes, { paneWidths: [192, 192, 192] });
+    } else if (state.screen === 'settings') {
+      updatePromise = hub.updateSettings(buildFullText(state));
+    } else {
+      updatePromise = hub.updateText(buildFullText(state));
+    }
+
+    updatePromise.catch(() => { }).finally(() => {
+      textInFlight = false;
+      if (textPending) {
+        textPending = false;
+        flushText(store.getState()).catch(() => { });
+      }
+    });
+  } catch {
+    textInFlight = false;
+  }
+}
+
+
+// ── Combined flush ──
+
+// ── Chart image rendering (shared by stock-detail and portfolio-chart) ──
+
+let chartImgBusy = false;
+
+async function flushChartImages(canvas: OffscreenCanvas | HTMLCanvasElement): Promise<void> {
+  if (!hub || !hub.pageReady) return;
+  if (chartImgBusy) return;
+
+  chartImgBusy = true;
+  try {
+    for (let i = 0; i < IMAGE_TILES.length; i++) {
+      const tile = IMAGE_TILES[i]!;
+      const enc = encodeTilesBatch(canvas as HTMLCanvasElement, [tile], G2_IMAGE_MAX_W, G2_IMAGE_MAX_H)[0]!;
+      await hub.sendImage(tile.id, tile.name, enc.bytes);
+    }
+  } catch { /* ignore */ }
+  finally { chartImgBusy = false; }
+}
+
+async function fetchAndRenderPortfolioChart(): Promise<void> {
+  const state = store.getState();
+  if (state.screen !== 'portfolio-chart' || state.portfolio.length === 0) return;
+
+  store.dispatch({ type: 'PORTFOLIO_CHART_LOADING' });
+  try {
+    const data = await fetchPortfolioHistory(
+      state.portfolio,
+      state.portfolioChartPeriod,
+      state.settings.displayCurrency,
+      state.fxRates,
+    );
+    store.dispatch({ type: 'PORTFOLIO_CHART_LOADED', data });
+  } catch {
+    store.dispatch({ type: 'PORTFOLIO_CHART_LOADED', data: [] });
+  }
+}
+
+function flushDisplay(state: AppState): void {
+  if (glassAlertToastActive) return;
+  flushText(state).catch(() => { });
+
+  if (hub?.currentLayout === 'chart') {
+    if (state.screen === 'portfolio-chart' && state.portfolioChartData.length > 0) {
+      const canvas = renderPortfolioLineChart(state.portfolioChartData);
+      flushChartImages(canvas).catch(() => { });
+    } else if (state.screen === 'stock-detail') {
+      const data = getDisplayData(state);
+      if (data.chartData && data.chartData.candles.length > 0) {
+        const canvas = renderToCanvasDirect(data);
+        flushChartImages(canvas).catch(() => { });
+      }
+    }
+  }
+}
+
+// ── Text builders ──
+
+function padR(s: string, n: number): string {
+  return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+}
+
+function padL(s: string, n: number): string {
+  return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
+}
+
+function truncateText(value: string, max = 28): string {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+
+function wrapTextLines(value: string, width = 28): string[] {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+    if (`${current} ${word}`.length <= width) {
+      current = `${current} ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function applyInlineScrollIndicators(lines: string[], start: number, totalCount: number, visibleCount: number): string[] {
+  if (lines.length === 0) return lines;
+  const next = [...lines];
+  if (start > 0) next[0] = '  \u25B2';
+  if (start + visibleCount < totalCount) next[next.length - 1] = '  \u25BC';
+  return next;
+}
+
+function alertColumnLine(text = ''): string {
+  return truncate(text, GLASS_ALERT_COL_WIDTH);
+}
+
+function centeredText(text: string, width: number): string {
+  const trimmed = truncate(text, width);
+  const leftPad = Math.max(0, Math.floor((width - trimmed.length) / 2));
+  const rightPad = Math.max(0, width - trimmed.length - leftPad);
+  return `${' '.repeat(leftPad)}${trimmed}${' '.repeat(rightPad)}`;
+}
+
+function formatAlertToastTime(timestamp?: number): string {
+  if (!timestamp) return 'NOW';
+  const date = new Date(timestamp);
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function buildAlertColumn(lines: string[]): string {
+  const content = lines.map((line) => alertColumnLine(line));
+  while (content.length < GLASS_ALERT_CONTENT_ROWS) content.push('');
+  return [
+    centeredText(GLASS_ALERT_FRAME_ROW, GLASS_ALERT_COL_WIDTH),
+    ...content.slice(0, GLASS_ALERT_CONTENT_ROWS),
+    centeredText(GLASS_ALERT_FRAME_ROW, GLASS_ALERT_COL_WIDTH),
+  ].join('\n');
+}
+
+function buildGlassAlertToastColumns(alert: PriceAlert): string[] {
+  const symbol = truncate(alert.symbol.toUpperCase(), GLASS_ALERT_COL_WIDTH);
+  const symbolHeader = truncate(`• [${symbol}]`, GLASS_ALERT_COL_WIDTH);
+  const direction = alert.condition === 'above' ? '▲ ABOVE' : '▼ UNDER';
+  const targetLine = `$${formatPrice(alert.targetPrice)}`;
+  const timeLine = formatAlertToastTime(alert.triggeredAt);
+
+  const left = buildAlertColumn([
+    '• [PRICE]',
+    '• CLICK',
+    '  DISMISS',
+  ]);
+
+  const middle = buildAlertColumn([
+    symbolHeader,
+    `• ${direction}`,
+    `  ${targetLine}`,
+  ]);
+
+  const right = buildAlertColumn([
+    '• [ TIME ]',
+    '• HIT AT',
+    `  ${timeLine}`,
+  ]);
+
+  return [left, middle, right];
+}
+
+function dismissGlassAlertToast(): void {
+  if (!glassAlertToastActive) return;
+  glassAlertToastActive = false;
+  flushDisplay(store.getState());
+}
+
+function showTransientGlassAlertToast(alert: PriceAlert): void {
+  if (!hub || !hub.pageReady || !alert.triggeredAt) return;
+  glassAlertToastActive = true;
+  void hub.showColumnPage(buildGlassAlertToastColumns(alert));
+}
+
+// Portfolio mode encoding: 0-99 = buttons, 100+ = scroll (offset = hi - 100)
+const PORTFOLIO_SCROLL_BASE = 100;
+
+function buildPortfolioText(state: AppState, _time: string): string {
+  const holdings = state.portfolio;
+  const hi = state.highlightedIndex;
+  const isScrollMode = hi >= PORTFOLIO_SCROLL_BASE;
+  const scrollOffset = isScrollMode ? hi - PORTFOLIO_SCROLL_BASE : 0;
+  const buttonIdx = isScrollMode ? -1 : hi;
+
+  const buttons = ['Detail', 'Chart'];
+  const activeLabel = isScrollMode ? 'Detail' : null;
+  const actionBar = buildActionBar(buttons, buttonIdx, activeLabel, false);
+
+  if (holdings.length === 0) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'Portfolio',
+      actionBar,
+      contentLines: ['No holdings yet', '', 'Add holdings from web'],
+      scrollPos: 0,
+    }));
+  }
+
+  const totalValue = holdings.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+  const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  if (!isScrollMode) {
+    // Detail view: show summary info
+    const lines: Array<{ text: string; style: string; inverted: boolean }> = [
+      { text: `Portfolio  ${actionBar}`, style: 'normal', inverted: false },
+      { text: '', style: 'separator', inverted: false },
+      { text: `Total Value  $${formatPrice(totalValue)}`, style: 'normal', inverted: false },
+      { text: `P&L  ${totalPnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(totalPnl))}  ${formatPercent(totalPnlPct)}`, style: 'meta', inverted: false },
+      { text: `Holdings  ${holdings.length}`, style: 'meta', inverted: false },
+      { text: '', style: 'normal', inverted: false },
+    ];
+    // Show top holdings summary
+    const topHoldings = holdings.slice(0, 4);
+    for (const h of topHoldings) {
+      const q = state.quotes[h.symbol];
+      const mv = (q?.price ?? h.avgCost) * h.quantity;
+      const pct = totalValue > 0 ? (mv / totalValue) * 100 : 0;
+      lines.push({ text: truncate(`${h.symbol}  $${formatPrice(mv)}  ${pct.toFixed(0)}%`, 54), style: 'meta', inverted: false });
+    }
+    return renderDisplayData({ lines: lines as DisplayData['lines'] });
+  }
+
+  // Scroll mode: scrollable holdings list
+  const list = buildScrollableList({
+    items: holdings,
+    highlightedIndex: Math.min(scrollOffset, holdings.length - 1),
+    maxVisible: 7,
+    formatter: (holding) => {
+      const quote = state.quotes[holding.symbol];
+      const marketValue = (quote?.price ?? holding.avgCost) * holding.quantity;
+      const pct = holding.avgCost > 0 ? (((quote?.price ?? holding.avgCost) - holding.avgCost) / holding.avgCost) * 100 : 0;
+      return truncate(`${holding.symbol} ${holding.quantity}u $${formatPrice(marketValue)} ${formatPercent(pct)}`, 54);
+    },
+  });
+
+  return renderDisplayData({
+    lines: [
+      { text: `Portfolio  ${actionBar}`, style: 'normal', inverted: false },
+      { text: '', style: 'separator', inverted: false },
+      ...list,
+    ],
+  });
+}
+
+function buildPortfolioSplit(state: AppState): { header: string; panes: string[] } {
+  const holdings = state.portfolio;
+  const totalValue = holdings.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+  const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  const SCROLL_BASE = 100;
+  const hi = state.highlightedIndex;
+  const isScrollMode = hi >= SCROLL_BASE;
+  const scrollOffset = isScrollMode ? hi - SCROLL_BASE : 0;
+  const buttonIdx = isScrollMode ? -1 : hi;
+
+  const buttons = ['Detail', 'Chart'];
+  const activeLabel = isScrollMode ? 'Detail' : null;
+  const actionBar = buildActionBar(buttons, buttonIdx, activeLabel, false);
+
+  const header = renderTextPageLines(glassHeader('Portfolio', actionBar));
+
+  if (holdings.length === 0) {
+    return { header, panes: ['No holdings yet', 'Add from web', ''] };
+  }
+
+  if (!isScrollMode) {
+    // Button mode: summary view
+    const col1: string[] = ['● Total Value', `● P&L`, `● Holdings`, ''];
+    const col2: string[] = [`$${formatPrice(totalValue)}`, `${totalPnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(totalPnl))}`, `${holdings.length}`, ''];
+    const col3: string[] = ['', `${formatPercent(totalPnlPct)}`, '', ''];
+
+    const sorted = [...holdings].sort((a, b) => {
+      const va = (state.quotes[a.symbol]?.price ?? a.avgCost) * a.quantity;
+      const vb = (state.quotes[b.symbol]?.price ?? b.avgCost) * b.quantity;
+      return vb - va;
+    });
+    for (let rank = 0; rank < Math.min(sorted.length, 4); rank++) {
+      const h = sorted[rank]!;
+      const q = state.quotes[h.symbol];
+      const mv = (q?.price ?? h.avgCost) * h.quantity;
+      const pct = h.avgCost > 0 ? (((q?.price ?? h.avgCost) - h.avgCost) / h.avgCost) * 100 : 0;
+      const alloc = totalValue > 0 ? (mv / totalValue) * 100 : 0;
+      const arrow = pct >= 0 ? '▲' : '▼';
+      const star = rank === 0 ? '★' : '☆';
+      col1.push(`  ${star} ${truncateText(h.symbol, 6)}`);
+      col2.push(`$${truncateText(formatPrice(mv), 9)}`);
+      col3.push(`${arrow} ${alloc.toFixed(0)}%`);
+    }
+
+    return { header, panes: [col1.join('\n'), col2.join('\n'), col3.join('\n')] };
+  }
+
+  // Detail scroll mode: scrollable holdings list
+  const maxVisible = 7;
+  const si = Math.min(scrollOffset, holdings.length - 1);
+  const winStart = slidingWindowStart(si, holdings.length, maxVisible);
+  const winEnd = Math.min(holdings.length, winStart + maxVisible);
+
+  const col1: string[] = [];
+  const col2: string[] = [];
+  const col3: string[] = [];
+
+  if (winStart > 0) { col1.push('  \u25B2'); col2.push(''); col3.push(''); }
+
+  for (let i = winStart; i < winEnd; i++) {
+    const holding = holdings[i]!;
+    const quote = state.quotes[holding.symbol];
+    const marketValue = (quote?.price ?? holding.avgCost) * holding.quantity;
+    const pct = holding.avgCost > 0 ? (((quote?.price ?? holding.avgCost) - holding.avgCost) / holding.avgCost) * 100 : 0;
+    col1.push(`${i === si ? '\u25B6 ' : '  '}${truncateText(holding.symbol, 8)}`);
+    col2.push(`$${truncateText(formatPrice(marketValue), 9)}`);
+    col3.push(`${holding.quantity}u ${formatPercent(pct)}`);
+  }
+
+  if (winEnd < holdings.length) { col1.push('  \u25BC'); col2.push(''); col3.push(''); }
+
+  return { header, panes: [col1.join('\n'), col2.join('\n'), col3.join('\n')] };
+}
+
+function buildHoldingDetailSplit(state: AppState): { header: string; panes: string[] } {
+  const holding = state.selectedHoldingId
+    ? state.portfolio.find((item) => item.id === state.selectedHoldingId) ?? null
+    : null;
+
+  const header = renderTextPageLines(glassHeader(
+    holding ? `${holding.symbol}  ${holding.assetType.toUpperCase()}` : 'Holding',
+  ));
+
+  if (!holding) return { header, panes: ['No holding selected', '', ''] };
+
+  const quote = state.quotes[holding.symbol];
+  const currentPrice = quote?.price ?? holding.avgCost;
+  const marketValue = currentPrice * holding.quantity;
+  const costBasis = holding.avgCost * holding.quantity;
+  const pnl = marketValue - costBasis;
+  const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+
+  const col1 = [
+    '● Price',
+    '● Qty',
+    '● Avg Cost',
+    '● Value',
+    '● P&L',
+  ];
+
+  const col2 = [
+    `$${formatPrice(currentPrice)}`,
+    `${holding.quantity}`,
+    `$${formatPrice(holding.avgCost)}`,
+    `$${formatPrice(marketValue)}`,
+    `${pnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(pnl))}`,
+  ];
+
+  const col3 = [
+    quote ? `${formatPercent(quote.changePercent)}` : '',
+    '',
+    `$${formatPrice(costBasis)}`,
+    '',
+    `${formatPercent(pnlPct)}`,
+  ];
+
+  if (quote) {
+    col1.push('', '▼ Low', '▲ High', '● Vol');
+    col2.push('', `$${formatPrice(quote.low)}`, `$${formatPrice(quote.high)}`, `${formatVolume(quote.volume)}`);
+    col3.push('', '', '', '');
+  }
+
+  return { header, panes: [col1.join('\n'), col2.join('\n'), col3.join('\n')] };
+}
+
+function buildAlertsText(state: AppState, time: string): string {
+  const alerts = sortAlertsForDisplay(state.alerts);
+  if (alerts.length === 0) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'Alerts',
+      actionBar: time,
+      contentLines: ['No alerts', '', 'Create alerts from web'],
+      scrollPos: 0,
+    }));
+  }
+  const list = buildScrollableList({
+    items: alerts,
+    highlightedIndex: Math.min(state.highlightedIndex, alerts.length - 1),
+    maxVisible: DEFAULT_CONTENT_SLOTS,
+    formatter: (alert) => {
+      const condition = alert.condition === 'above' ? '>' : '<';
+      const status = isUnreadTriggeredAlert(alert) ? ' new' : alert.triggered ? ' hit' : '';
+      return truncate(`${alert.symbol} ${condition} $${formatPrice(alert.targetPrice)}${status}`, 54);
+    },
+  });
+  return renderDisplayData({ lines: [{ text: `Alerts  ${time}`, style: 'normal', inverted: false }, { text: '', style: 'separator', inverted: false }, ...list] });
+}
+
+function buildOverviewText(state: AppState, time: string): string {
+  const activeQuotes = state.settings.graphics
+    .map((graphic) => state.quotes[graphic.symbol])
+    .filter((quote): quote is NonNullable<typeof quote> => !!quote);
+
+  const gainers = activeQuotes.filter((q) => q.changePercent > 0).length;
+  const losers = activeQuotes.filter((q) => q.changePercent < 0).length;
+  const unchanged = activeQuotes.length - gainers - losers;
+  const totalVolume = activeQuotes.reduce((sum, q) => sum + q.volume, 0);
+  const best = [...activeQuotes].sort((a, b) => b.changePercent - a.changePercent)[0];
+  const worst = [...activeQuotes].sort((a, b) => a.changePercent - b.changePercent)[0];
+
+  const contentLines = [
+    `Watchlist ${state.settings.graphics.length}`,
+    `Gainers   ${gainers}`,
+    `Losers    ${losers}`,
+    `Flat      ${unchanged}`,
+    `Volume    ${formatVolume(totalVolume)}`,
+    `Holdings  ${state.portfolio.length}`,
+    '',
+    best ? `Best      ${best.symbol} ${formatPercent(best.changePercent)}` : 'Best      --',
+    worst ? `Worst     ${worst.symbol} ${formatPercent(worst.changePercent)}` : 'Worst     --',
+  ];
+  return renderDisplayData(buildScrollableContent({
+    title: 'Overview',
+    actionBar: time,
+    contentLines,
+    scrollPos: state.highlightedIndex,
+  }));
+}
+
+function buildOverviewColumns(state: AppState): { labels: string; values: string; detail: string } {
+  const activeQuotes = state.settings.graphics
+    .map((graphic) => state.quotes[graphic.symbol])
+    .filter((quote): quote is NonNullable<typeof quote> => !!quote);
+
+  const gainers = activeQuotes.filter((q) => q.changePercent > 0).length;
+  const losers = activeQuotes.filter((q) => q.changePercent < 0).length;
+  const unchanged = activeQuotes.length - gainers - losers;
+  const totalVolume = activeQuotes.reduce((sum, q) => sum + q.volume, 0);
+  const best = [...activeQuotes].sort((a, b) => b.changePercent - a.changePercent)[0];
+  const worst = [...activeQuotes].sort((a, b) => a.changePercent - b.changePercent)[0];
+  const portfolioValue = state.portfolio.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+
+  const labels = [
+    '● Watchlist',
+    '● Gainers',
+    '● Losers',
+    '● Flat',
+    '● Volume',
+    '● Holdings',
+  ].join('\n');
+
+  const values = [
+    `${state.settings.graphics.length}`,
+    `${gainers}`,
+    `${losers}`,
+    `${unchanged}`,
+    `${formatVolume(totalVolume)}`,
+    `${state.portfolio.length}`,
+  ].join('\n');
+
+  const detail = [
+    '◆ Best',
+    best ? `${best.symbol} ${formatPercent(best.changePercent)}` : '--',
+    '',
+    '◆ Worst',
+    worst ? `${worst.symbol} ${formatPercent(worst.changePercent)}` : '--',
+    '',
+    '■ Portfolio',
+    state.portfolio.length > 0 ? `$${formatPrice(portfolioValue)}` : '--',
+  ].join('\n');
+
+  return { labels, values, detail };
+}
+
+function buildNewsText(state: AppState, time: string): string {
+  const items = filterNewsItems(state.news, state.newsFilter);
+  if (items.length === 0) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'News',
+      actionBar: time,
+      contentLines: state.news.length === 0 ? ['Loading news...'] : ['No news for this filter'],
+      scrollPos: 0,
+    }));
+  }
+  const list = buildScrollableList({
+    items,
+    highlightedIndex: Math.min(state.highlightedIndex, items.length - 1),
+    maxVisible: DEFAULT_CONTENT_SLOTS,
+    formatter: (item) => {
+      const meta = item.category === 'crypto' ? 'Crypto' : item.category === 'stocks' ? 'Market' : 'News';
+      return truncate(`[${meta}] ${item.title}`, 54);
+    },
+  });
+  return renderDisplayData({ lines: [{ text: `News  ${time}`, style: 'normal', inverted: false }, { text: '', style: 'separator', inverted: false }, ...list] });
+}
+
+function buildNewsDetailText(state: AppState, time: string): string {
+  const item = state.selectedNewsId
+    ? state.news.find((news) => news.id === state.selectedNewsId) ?? null
+    : null;
+  if (!item) {
+    return renderDisplayData(buildScrollableContent({
+      title: 'Article',
+      actionBar: time,
+      contentLines: ['No article selected'],
+      scrollPos: 0,
+    }));
+  }
+  const articleBody = state.selectedNewsLoading
+    ? 'Loading article...'
+    : (state.selectedNewsContent ?? item.description ?? item.url);
+  const contentLines = [
+    `${item.source} · ${item.publishedAt}`,
+    item.category.toUpperCase(),
+    '',
+    ...wrapTextLines(articleBody, 54),
+    '',
+    ...wrapTextLines(item.url.replace(/^https?:\/\//, ''), 54),
+  ];
+  return renderDisplayData(buildScrollableContent({
+    title: truncate(item.title, 28),
+    actionBar: time,
+    contentLines,
+    scrollPos: state.highlightedIndex,
+    contentStyle: 'normal',
+  }));
+}
+
+function buildWatchlistText(state: AppState, time: string): string {
+  const lines: string[] = [`Watchlist${' '.repeat(18)}${time}`, '\u2500'.repeat(28)];
+  const items = state.settings.graphics;
+  if (items.length === 0) {
+    lines.push('No symbols added');
+    return lines.join('\n');
+  }
+
+  const maxVisible = DEFAULT_CONTENT_SLOTS;
+  const hi = Math.min(state.highlightedIndex, items.length - 1);
+  const winStart = slidingWindowStart(hi, items.length, maxVisible);
+  const winEnd = Math.min(items.length, winStart + maxVisible);
+  if (winStart > 0) lines.push('  \u25B2');
+  for (let i = winStart; i < winEnd; i++) {
+    const graphic = items[i]!;
+    const quote = state.quotes[graphic.symbol];
+    const value = quote ? `$${formatPrice(quote.price)} ${formatPercent(quote.changePercent)}` : 'Loading';
+    lines.push(`${i === hi ? '\u25B6 ' : '  '}${truncateText(`${graphic.symbol} ${formatResolutionShort(graphic.resolution)} ${value}`, 28)}`);
+  }
+  if (winEnd < items.length) lines.push('  \u25BC');
+  return lines.join('\n');
+}
+
+const MARKET_HEADER = [
+  '◆  E R   M A R K E T  ◆',
+];
+
+function buildHomeText(state: AppState): string {
+  const lang = state.settings.language;
+  const hi = state.highlightedIndex;
+  const unreadAlerts = getUnreadTriggeredAlertCount(state.alerts);
+  const items = [
+    t('home.watchlist', lang),
+    'Portfolio',
+    'Overview',
+    unreadAlerts > 0 ? `Alerts (${unreadAlerts})` : 'Alerts',
+    'News',
+    t('home.settings', lang),
+  ];
+
+  const artLines = MARKET_HEADER.map((row) => ({
+    text: row,
+    style: 'normal' as const,
+    inverted: false,
+  }));
+  const sep = { text: '', style: 'separator' as const, inverted: false };
+
+  const menuLines = buildScrollableList({
+    items,
+    highlightedIndex: hi,
+    maxVisible: 6,
+    formatter: (label) => truncate(label, 54),
+  });
+
+  return renderDisplayData({
+    lines: [...artLines, sep, ...menuLines],
+  });
+}
+
+/** Build 3 column strings for the watchlist (symbol, price, percent). */
+function buildWatchlistColumns(state: AppState): { sym: string; price: string; pct: string } {
+  const lang = state.settings.language;
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const hi = state.highlightedIndex;
+  const favSet = new Set(state.favoriteSymbols);
+  const sortedGraphics = [...state.settings.graphics].sort((a, b) => (favSet.has(a.symbol) ? 0 : 1) - (favSet.has(b.symbol) ? 0 : 1));
+  const totalItems = sortedGraphics.length;
+
+  const MAX_VISIBLE = 7;
+
+  // Sliding window
+  const winStart = slidingWindowStart(hi, totalItems, MAX_VISIBLE);
+  const winEnd = Math.min(totalItems, winStart + MAX_VISIBLE);
+
+  // Column 1: title + cursor + symbol
+  const symLines: string[] = [];
+  symLines.push(`  ${t('watchlist.symbol', lang)}`);
+  symLines.push(winStart > 0 ? '  \u25B2' : '');
+  for (let i = winStart; i < winEnd; i++) {
+    const g = sortedGraphics[i]!;
+    const res = formatResolutionShort(g.resolution);
+    const star = favSet.has(g.symbol) ? '★ ' : '';
+    const cursor = i === hi ? '\u25B6 ' : '  ';
+    symLines.push(`${cursor}${star}${g.symbol} ${res}`);
+  }
+  while (symLines.length < 2 + MAX_VISIBLE) symLines.push('');
+  symLines.push(winEnd < totalItems ? '  \u25BC' : '');
+
+  // Column 2: title + price
+  const priceLines: string[] = [];
+  priceLines.push(t('watchlist.price', lang));
+  priceLines.push(''); // up arrow row
+  for (let i = winStart; i < winEnd; i++) {
+    const g = state.settings.graphics[i]!;
+    const q = state.quotes[g.symbol];
+    priceLines.push(q ? formatPrice(q.price) : '---.--');
+  }
+  while (priceLines.length < 2 + MAX_VISIBLE) priceLines.push('');
+  priceLines.push(''); // down arrow row
+
+  // Column 3: title + percent
+  const pctLines: string[] = [];
+  pctLines.push(t('watchlist.change', lang));
+  pctLines.push(''); // up arrow row
+  for (let i = winStart; i < winEnd; i++) {
+    const g = state.settings.graphics[i]!;
+    const q = state.quotes[g.symbol];
+    pctLines.push(q ? formatPercent(q.changePercent) : '--.--');
+  }
+  while (pctLines.length < 2 + MAX_VISIBLE) pctLines.push('');
+  pctLines.push(''); // down arrow row
+
+  return {
+    sym: symLines.join('\n'),
+    price: priceLines.join('\n'),
+    pct: pctLines.join('\n'),
+  };
+}
+
+/** Full-screen text for settings/splash. */
+function buildFullText(state: AppState): string {
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  switch (state.screen) {
+    case 'splash':
+      return '';
+
+    case 'watchlist': {
+      return buildWatchlistText(state, time);
+    }
+
+    case 'portfolio':
+      return buildPortfolioText(state, time);
+
+    case 'alerts':
+      return buildAlertsText(state, time);
+
+    case 'overview':
+      return buildOverviewText(state, time);
+
+    case 'news':
+      return buildNewsText(state, time);
+
+    case 'news-detail':
+      return buildNewsDetailText(state, time);
+
+    case 'settings': {
+      const lang = state.settings.language;
+      const s = state.settings;
+      const hi = state.highlightedIndex;
+      const editing = state.settingsEditActive;
+      const lines: string[] = [];
+      const buildSettingRow = (rowIndex: number, label: string, value: string, gap = 10) => {
+        const prefix = hi === rowIndex ? '\u25B6 ' : '  ';
+        const valueText = editing && hi === rowIndex
+          ? `\u25C0 [${value}] \u25B6`
+          : value;
+        return `${prefix}${padR(label, gap)} ${valueText}`;
+      };
+
+      lines.push(`${t('settings.title', lang)}${' '.repeat(19)}${time}`);
+      lines.push('');
+
+      // Refresh row
+      const refreshLabel = `${s.refreshInterval}s`;
+      lines.push(buildSettingRow(0, t('settings.refresh', lang), refreshLabel));
+
+      // Chart type row
+      const chartLabel = s.chartType === 'sparkline' ? t('settings.sparkline', lang) : t('settings.candles', lang);
+      lines.push(buildSettingRow(1, t('settings.chart', lang), chartLabel));
+
+      // Language row
+      const langName = getLanguageName(s.language);
+      lines.push(buildSettingRow(2, t('settings.language', lang), langName));
+
+      return lines.join('\n');
+    }
+
+    default:
+      return `${time}\nER Market`;
+  }
+}
+
+/** Text below chart: header + scrollable candle table. */
+function buildPortfolioChartText(state: AppState): string {
+  const lang = state.settings.language;
+  const holdings = state.portfolio;
+  const totalValue = holdings.reduce((sum, h) => {
+    const q = state.quotes[h.symbol];
+    return sum + (q ? q.price * h.quantity : h.avgCost * h.quantity);
+  }, 0);
+  const totalCost = holdings.reduce((sum, h) => sum + h.avgCost * h.quantity, 0);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  const periods = ['1D', '1W', '1M', '1Y'];
+  const periodIdx = periods.indexOf(state.portfolioChartPeriod);
+  const periodBar = buildActionBar(periods, periodIdx, state.portfolioChartPeriod, false);
+
+  const lines: string[] = [];
+  lines.push(`Portfolio $${formatPrice(totalValue)}  ${periodBar}`);
+  lines.push('\u2500'.repeat(28));
+
+  if (state.portfolioChartLoading) {
+    lines.push('Loading chart...');
+  } else if (state.portfolioChartData.length > 0) {
+    const first = state.portfolioChartData[0]!.value;
+    const last = state.portfolioChartData[state.portfolioChartData.length - 1]!.value;
+    const change = last - first;
+    const changePct = first > 0 ? (change / first) * 100 : 0;
+    lines.push(`Period: ${change >= 0 ? '+' : ''}$${formatPrice(Math.abs(change))} ${formatPercent(changePct)}`);
+    lines.push(`Total P&L: ${totalPnl >= 0 ? '+' : ''}$${formatPrice(Math.abs(totalPnl))}`);
+  } else {
+    lines.push('No chart data');
+    lines.push(`P&L: ${totalPnl >= 0 ? '+' : ''}${formatPrice(totalPnl)}`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildChartTopText(state: AppState): string {
+  const lang = state.settings.language;
+  const g = state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
+  if (!g) return t('chart.noGraphic', lang);
+  const q = state.quotes[g.symbol];
+  if (!q) return `${g.symbol}  ${t('chart.loading', lang)}`;
+
+  const res = formatResolutionShort(g.resolution);
+  const inBtnMode = !state.candleNavActive && !state.tfNavActive;
+  const activeLabel = state.tfNavActive ? res : state.candleNavActive ? t('chart.nav', lang) : null;
+  const selectedIdx = inBtnMode ? state.highlightedIndex : -1;
+  const btnBar = buildActionBar([res, t('chart.nav', lang)], selectedIdx, activeLabel, state.candleFlashPhase);
+
+  const lines: string[] = [];
+
+  // Row 1: symbol, price, change, buttons
+  lines.push(`${g.symbol} $${formatPrice(q.price)} ${formatPercent(q.changePercent)}  ${btnBar}`);
+  lines.push('\u2500'.repeat(28));
+
+  // Single candle display with ▲/▼ scroll indicators
+  const candles = state.candles;
+  if (candles.length > 0) {
+    const ci = state.highlightedCandleIndex;
+    const idx = ci >= 0 ? ci : candles.length - 1;
+    const cd = candles[Math.max(0, Math.min(idx, candles.length - 1))]!;
+
+    // ▲ if there are newer candles above
+    if (idx < candles.length - 1) {
+      lines.push('\u25B2');
+    }
+
+    const row1 = `O:${formatPrice(cd.open)}  H:${formatPrice(cd.high)}  L:${formatPrice(cd.low)}  C:${formatPrice(cd.close)}`;
+    const row2 = `V:${formatVolume(cd.volume)}  ${formatCandleTime(cd.time, g.resolution)}`;
+    lines.push(row1);
+    lines.push(row2);
+
+    // ▼ if there are older candles below
+    if (idx > 0) {
+      lines.push('\u25BC');
+    }
+  } else {
+    lines.push(t('chart.noData', lang));
+  }
+
+  return lines.join('\n');
+}
+
+// ── State change detection ──
+
+function shouldUpdateDisplay(state: AppState, prev: AppState): boolean {
+  if (state.screen !== prev.screen) return true;
+  if (state.highlightedIndex !== prev.highlightedIndex) return true;
+  if (state.quotes !== prev.quotes) return true;
+  if (state.candles !== prev.candles) return true;
+  if (state.selectedGraphicId !== prev.selectedGraphicId) return true;
+  if (state.candleNavActive !== prev.candleNavActive) return true;
+  if (state.highlightedCandleIndex !== prev.highlightedCandleIndex) return true;
+  if (state.tfNavActive !== prev.tfNavActive) return true;
+  if (state.settingsEditActive !== prev.settingsEditActive) return true;
+  if (state.candleFlashPhase !== prev.candleFlashPhase) return true;
+  if (state.settings !== prev.settings) return true;
+  if (state.portfolio !== prev.portfolio) return true;
+  if (state.alerts !== prev.alerts) return true;
+  if (state.news !== prev.news) return true;
+  if (state.selectedHoldingId !== prev.selectedHoldingId) return true;
+  if (state.selectedNewsId !== prev.selectedNewsId) return true;
+  if (state.selectedNewsContent !== prev.selectedNewsContent) return true;
+  if (state.selectedNewsLoading !== prev.selectedNewsLoading) return true;
+  if (state.loading !== prev.loading) return true;
+  if (state.lastError !== prev.lastError) return true;
+  if (state.portfolioChartPeriod !== prev.portfolioChartPeriod) return true;
+  if (state.portfolioChartData !== prev.portfolioChartData) return true;
+  if (state.portfolioChartLoading !== prev.portfolioChartLoading) return true;
+  return false;
+}
+
+// ── Side effects ──
+
+function getSelectedGraphic(state: AppState): GraphicEntry | undefined {
+  return state.settings.graphics.find((g) => g.id === state.selectedGraphicId);
+}
+
+function handleSideEffects(state: AppState, prev: AppState): void {
+  // Fetch portfolio chart data when entering chart screen or changing period
+  if (state.screen === 'portfolio-chart') {
+    const enteringChart = state.screen !== prev.screen;
+    const periodChanged = state.portfolioChartPeriod !== prev.portfolioChartPeriod;
+    if (enteringChart || periodChanged) {
+      fetchAndRenderPortfolioChart();
+    }
+  }
+
+  if (state.screen === 'stock-detail' && state.selectedGraphicId) {
+    const graphic = getSelectedGraphic(state);
+    if (graphic) {
+      const enteringDetail = state.screen !== prev.screen || state.selectedGraphicId !== prev.selectedGraphicId;
+      const resolutionChanged = state.settings !== prev.settings && state.selectedGraphicId;
+      if (enteringDetail || resolutionChanged) {
+        poller.fetchCandles(graphic.symbol, graphic.resolution);
+      }
+    }
+  }
+
+  const needsFlash = (state.screen === 'stock-detail' && state.tfNavActive)
+    || (state.screen === 'settings' && state.settingsEditActive);
+  if (needsFlash && !flashTimer) {
+    flashTimer = setInterval(() => {
+      store.dispatch({ type: 'CANDLE_FLASH_TICK' });
+    }, 500);
+  } else if (!needsFlash && flashTimer) {
+    clearInterval(flashTimer);
+    flashTimer = null;
+  }
+
+  if (state.settings !== prev.settings) {
+    storageSet('even-market-settings', state.settings);
+  }
+
+  if (state.portfolio !== prev.portfolio) {
+    storageSet('even-market:portfolio', state.portfolio);
+  }
+
+  if (state.alerts !== prev.alerts) {
+    storageSet('even-market:alerts', state.alerts);
+
+    const latest = getLatestTriggeredAlert(state.alerts);
+    const prevLatest = getLatestTriggeredAlert(prev.alerts);
+    const latestTriggeredAt = latest?.triggeredAt ?? 0;
+    const prevTriggeredAt = prevLatest?.triggeredAt ?? 0;
+    if (latest && latestTriggeredAt > prevTriggeredAt && state.screen !== 'alerts') {
+      showTransientGlassAlertToast(latest);
+    }
+  }
+
+  if (
+    state.screen === 'news-detail' &&
+    state.selectedNewsId &&
+    state.selectedNewsLoading &&
+    (
+      state.screen !== prev.screen ||
+      state.selectedNewsId !== prev.selectedNewsId ||
+      (!prev.selectedNewsLoading && !state.selectedNewsContent)
+    )
+  ) {
+    const currentId = state.selectedNewsId;
+    const item = state.news.find((news) => news.id === currentId);
+    if (item) {
+      void fetchNewsArticleContent(item.url).then((content) => {
+        const latest = store.getState();
+        if (latest.screen === 'news-detail' && latest.selectedNewsId === currentId) {
+          store.dispatch({ type: 'NEWS_ARTICLE_LOADED', newsId: currentId, content });
+        }
+      });
+    } else {
+      store.dispatch({ type: 'NEWS_ARTICLE_LOADED', newsId: currentId, content: 'Could not load article.' });
+    }
+  }
+
+}
+
+// ── Setup ──
+
+
+function migrateOldSettings(raw: string): Record<string, unknown> {
+  const settings = JSON.parse(raw);
+  if (settings.watchlist && Array.isArray(settings.watchlist) && settings.watchlist.length > 0
+    && typeof settings.watchlist[0] === 'string') {
+    const resolution: ChartResolution = settings.chartResolution || 'D';
+    settings.graphics = (settings.watchlist as string[]).map((sym: string) => ({
+      id: makeGraphicId(sym, resolution),
+      symbol: sym,
+      resolution,
+    }));
+    delete settings.watchlist;
+    delete settings.chartResolution;
+  }
+  if ('chartResolution' in settings) delete settings.chartResolution;
+  return settings;
+}
+
+async function loadSettings(): Promise<void> {
+  try {
+    const stored = await storageGet<Record<string, unknown> | null>('even-market-settings', null);
+    if (stored) {
+      const settings = migrateOldSettings(JSON.stringify(stored));
+      store.dispatch({ type: 'SETTINGS_LOADED', settings });
+      storageSet('even-market-settings', store.getState().settings);
+    }
+  } catch { /* use defaults */ }
+
+  // Load portfolio + alerts
+  try {
+    const portfolio = await storageGet<import('../state/types').PortfolioHolding[]>('even-market:portfolio', []);
+    if (portfolio.length > 0) store.dispatch({ type: 'PORTFOLIO_LOADED', portfolio });
+  } catch { /* ignore */ }
+
+  try {
+    const alerts = await storageGet<import('../state/types').PriceAlert[]>('even-market:alerts', []);
+    if (alerts.length > 0) store.dispatch({ type: 'ALERTS_LOADED', alerts });
+  } catch { /* ignore */ }
+
+  try {
+    const favs = await storageGet<string[]>('even-market:favorites', []);
+    if (favs && favs.length > 0) store.dispatch({ type: 'FAVORITES_LOADED', symbols: favs });
+  } catch { /* ignore */ }
+}
+
+export function getStore(): ReturnType<typeof createStore> {
+  return store;
+}
+
+export function getPoller(): Poller {
+  return poller;
+}
+
+export async function initGlassesRenderer(): Promise<void> {
+  store = createStore();
+  poller = new Poller(store);
+  await loadSettings();
+
+  const sdkHub = new EvenHubBridge();
+  sdkHub.init().then(async () => {
+    hub = sdkHub;
+    store.dispatch({ type: 'CONNECTION_STATUS', status: 'connected' });
+
+    await hub.showHomePage(buildHomeText(store.getState()));
+
+    hub.onEvent((event) => {
+      if (glassAlertToastActive) {
+        const action = mapEvenHubEvent(event, store.getState());
+        if (action?.type === 'SELECT_HIGHLIGHTED') dismissGlassAlertToast();
+        return;
+      }
+      const state = store.getState();
+      const action = mapEvenHubEvent(event, state);
+      if (action?.type === 'GO_BACK' && state.screen === 'home') {
+        void hub?.rawBridge?.shutDownPageContainer?.(1);
+        return;
+      }
+      if (action) store.dispatch(action);
+    });
+
+    // Now dispatch — subscriber won't rebuild since layout is already 'home'
+    store.dispatch({ type: 'APP_INIT' });
+
+  }).catch(() => { });
+
+  store.subscribe((state, prev) => {
+    if (shouldUpdateDisplay(state, prev)) {
+      flushDisplay(state);
+    }
+    handleSideEffects(state, prev);
+  });
+
+  poller.start();
+  activateKeepAlive();
+}

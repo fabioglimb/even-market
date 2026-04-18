@@ -1,0 +1,11 @@
+node_modules
+dist
+*.ehpk
+
+app.json
+CLAUDE.md
+.claude/
+
+.env
+.env.*
+!.env.example
