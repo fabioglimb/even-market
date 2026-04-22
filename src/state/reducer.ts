@@ -366,6 +366,11 @@ export function reduce(state: AppState, action: Action): AppState {
           assetType: detectAssetType(g.symbol),
         }));
       }
+      // Clamp refreshInterval to currently-allowed values; migrates legacy
+      // values (5s / 10s / 15s) to the new 30s minimum.
+      if (typeof loaded.refreshInterval === 'number' && !REFRESH_OPTIONS.includes(loaded.refreshInterval)) {
+        loaded.refreshInterval = REFRESH_OPTIONS[0]!;
+      }
       return { ...state, settings: loaded };
     }
 
@@ -553,7 +558,7 @@ function setGraphicResolution(state: AppState, graphicId: string, resolution: Ch
   };
 }
 
-const REFRESH_OPTIONS = [5, 10, 15, 30, 60];
+const REFRESH_OPTIONS = [30, 60, 120, 300];
 const CHART_TYPES: Array<'sparkline' | 'candles'> = ['sparkline', 'candles'];
 
 function cycleSettingsValue(state: AppState, direction = 1): AppState {

@@ -58,7 +58,7 @@ function SettingsScreen() {
       <Card className="mb-4">
         <SettingRow label={t('web.refreshInterval', lang)} description="How often to refresh market data">
           <Select
-            options={[5, 10, 15, 30, 60].map((v) => ({ value: String(v), label: `${v}s` }))}
+            options={[30, 60, 120, 300].map((v) => ({ value: String(v), label: `${v}s` }))}
             value={String(settings.refreshInterval)}
             onValueChange={(val) => dispatch({ type: 'SETTING_CHANGE', key: 'refreshInterval', value: Number(val) })}
             className="w-[80px]"

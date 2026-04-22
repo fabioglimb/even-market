@@ -145,7 +145,7 @@ export const DEFAULT_GRAPHICS: GraphicEntry[] = [
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
-  refreshInterval: 15,
+  refreshInterval: 30,
   graphics: [...DEFAULT_GRAPHICS],
   chartType: 'sparkline',
   language: 'en' as MarketLanguage,
