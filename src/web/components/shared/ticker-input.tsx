@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ChartResolution, AssetType } from '../../../state/types';
-import { Input, Select, Button, InputGroup, SegmentedControl } from 'even-toolkit/web';
+import { Input, Select, Button, InputGroup, SegmentedControl, Toast } from 'even-toolkit/web';
 import { searchCoins } from '../../../data/coingecko';
 import { searchSymbols, detectAssetType } from '../../../data/yahoo-finance';
 import type { CoinSearchResult } from '../../../data/coingecko';
 import type { YahooSearchResult } from '../../../data/yahoo-finance';
+import { useSelector } from '../../hooks/use-store';
+import { t } from '../../../utils/i18n';
 
 const RES_OPTIONS = [
   { value: '1', label: '1 min' },
@@ -34,13 +36,22 @@ interface TickerInputProps {
 }
 
 function TickerInput({ onAdd }: TickerInputProps) {
+  const lang = useSelector((s) => s.settings.language);
   const [symbol, setSymbol] = useState('');
   const [resolution, setResolution] = useState<ChartResolution>('D');
   const [mode, setMode] = useState<'stock' | 'crypto'>('stock');
   const [searchResults, setSearchResults] = useState<SearchItem[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedGeckoId, setSelectedGeckoId] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   const doSearch = useCallback(async (query: string) => {
     if (query.length < 2) {
@@ -49,33 +60,38 @@ function TickerInput({ onAdd }: TickerInputProps) {
       return;
     }
 
-    if (mode === 'crypto') {
-      const results = await searchCoins(query);
-      setSearchResults(results.map((c: CoinSearchResult) => ({
-        symbol: c.symbol.toUpperCase(),
-        name: c.name,
-        detail: c.market_cap_rank ? `#${c.market_cap_rank}` : undefined,
-        geckoId: c.id,
-      })));
-    } else {
-      const results = await searchSymbols(query);
-      setSearchResults(
-        results
-          .map((r: YahooSearchResult) => {
-            const at = detectAssetType(r.symbol, r.typeDisp);
-            return {
-              symbol: r.symbol,
-              name: r.shortname || r.longname || r.symbol,
-              detail: at === 'forex' ? 'Forex' : at === 'commodity' ? 'Commodity' : r.typeDisp || r.exchDisp,
-              assetType: at,
-            };
-          })
-          .filter((r) => r.assetType !== 'crypto')
-      );
+    try {
+      if (mode === 'crypto') {
+        const results = await searchCoins(query);
+        setSearchResults(results.map((c: CoinSearchResult) => ({
+          symbol: c.symbol.toUpperCase(),
+          name: c.name,
+          detail: c.market_cap_rank ? `#${c.market_cap_rank}` : undefined,
+          geckoId: c.id,
+        })));
+      } else {
+        const results = await searchSymbols(query);
+        setSearchResults(
+          results
+            .map((r: YahooSearchResult) => {
+              const at = detectAssetType(r.symbol, r.typeDisp);
+              return {
+                symbol: r.symbol,
+                name: r.shortname || r.longname || r.symbol,
+                detail: at === 'forex' ? 'Forex' : at === 'commodity' ? 'Commodity' : r.typeDisp || r.exchDisp,
+                assetType: at,
+              };
+            })
+            .filter((r) => r.assetType !== 'crypto')
+        );
+      }
+      setShowDropdown(true);
+    } catch {
+      setSearchResults([]);
+      setShowDropdown(false);
+      setToast(t('error.searchFailed', lang));
     }
-
-    setShowDropdown(true);
-  }, [mode]);
+  }, [mode, lang]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -97,17 +113,21 @@ function TickerInput({ onAdd }: TickerInputProps) {
 
   function handleAdd() {
     const sym = symbol.trim().toUpperCase();
-    if (sym) {
-      if (mode === 'crypto') {
-        onAdd(sym, resolution, 'crypto', selectedGeckoId ?? sym.toLowerCase());
-      } else {
-        const at = selectedAssetTypeRef.current !== 'crypto' ? selectedAssetTypeRef.current : detectAssetType(sym);
-        onAdd(sym, resolution, at);
-      }
-      setSymbol('');
-      setSelectedGeckoId(null);
-      selectedAssetTypeRef.current = 'stock';
+    if (!sym) {
+      setInvalid(true);
+      setToast(t('validation.symbolRequired', lang));
+      return;
     }
+    if (mode === 'crypto') {
+      onAdd(sym, resolution, 'crypto', selectedGeckoId ?? sym.toLowerCase());
+    } else {
+      const at = selectedAssetTypeRef.current !== 'crypto' ? selectedAssetTypeRef.current : detectAssetType(sym);
+      onAdd(sym, resolution, at);
+    }
+    setSymbol('');
+    setSelectedGeckoId(null);
+    setInvalid(false);
+    selectedAssetTypeRef.current = 'stock';
   }
 
   return (
@@ -130,10 +150,12 @@ function TickerInput({ onAdd }: TickerInputProps) {
             placeholder={mode === 'crypto' ? 'Search coin (e.g. bitcoin)' : 'Search (e.g. AAPL, EURUSD)'}
             maxLength={30}
             value={symbol}
+            error={invalid}
             className="w-full"
             onChange={(e) => {
               setSymbol(e.target.value);
               setSelectedGeckoId(null);
+              if (invalid) setInvalid(false);
             }}
             onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
@@ -169,6 +191,11 @@ function TickerInput({ onAdd }: TickerInputProps) {
           <Button size="sm" onClick={handleAdd}>Add</Button>
         </InputGroup>
       </div>
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-[420px] px-3">
+          <Toast message={toast} variant="error" />
+        </div>
+      )}
     </div>
   );
 }

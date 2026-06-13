@@ -181,7 +181,8 @@ async function resolveCryptoMeta(symbol: string, rawGeckoId?: string, rawQuoteCu
     return { geckoId, quoteCurrency };
   }
 
-  const results = await searchCoins(symbol);
+  // Best-effort lookup: a search failure here should not abort the import.
+  const results = await searchCoins(symbol).catch(() => []);
   const exact = results.find((item) => item.symbol.toUpperCase() === symbol) ?? results[0];
   return {
     geckoId: exact?.id ?? symbol.toLowerCase(),

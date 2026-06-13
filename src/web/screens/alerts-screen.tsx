@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from '../hooks/use-store';
 import { useGraphics } from '../hooks/use-graphics';
-import { ListItem, Badge, EmptyState, Button, Dialog, Input, Select } from 'even-toolkit/web';
+import { ListItem, Badge, EmptyState, Button, Dialog, Input, Select, Toast } from 'even-toolkit/web';
 import { IcFeatNotification } from 'even-toolkit/web/icons/svg-icons';
 import { isUnreadTriggeredAlert, sortAlertsForDisplay } from '../../state/alert-utils';
 import { displaySymbol, formatPrice } from '../../utils/format';
+import { t } from '../../utils/i18n';
 import type { AssetType, PriceAlert } from '../../state/types';
 
 const CONDITION_OPTIONS = [
@@ -14,6 +15,7 @@ const CONDITION_OPTIONS = [
 
 function AlertsScreen({ addTrigger }: { addTrigger?: number }) {
   const dispatch = useDispatch();
+  const lang = useSelector((s) => s.settings.language);
   const alerts = useSelector((s) => s.alerts);
   const graphics = useGraphics();
   const [showForm, setShowForm] = useState(false);
@@ -24,12 +26,23 @@ function AlertsScreen({ addTrigger }: { addTrigger?: number }) {
       setSymbol(symbolOptions[0]?.value ?? '');
       setTargetPrice('');
       setCondition('above');
+      setSymbolError(false);
+      setPriceError(false);
       setShowForm(true);
     }
   }, [addTrigger]);
   const [symbol, setSymbol] = useState('');
   const [condition, setCondition] = useState<'above' | 'below'>('above');
   const [targetPrice, setTargetPrice] = useState('');
+  const [symbolError, setSymbolError] = useState(false);
+  const [priceError, setPriceError] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   const symbolOptions = graphics.map((g) => ({
     value: g.id,
@@ -45,7 +58,17 @@ function AlertsScreen({ addTrigger }: { addTrigger?: number }) {
     const graphic = graphics.find((g) => g.id === symbol);
     const sym = graphic?.symbol?.trim().toUpperCase() ?? '';
     const price = parseFloat(targetPrice);
-    if (!sym || isNaN(price) || price <= 0) return;
+
+    const symInvalid = !sym;
+    const priceInvalid = isNaN(price) || price <= 0;
+    if (symInvalid || priceInvalid) {
+      setSymbolError(symInvalid);
+      setPriceError(priceInvalid);
+      setToast(t(symInvalid ? 'validation.symbolSelect' : 'validation.pricePositive', lang));
+      return;
+    }
+    setSymbolError(false);
+    setPriceError(false);
 
     const alert: PriceAlert = {
       id: `${sym}-${condition}-${price}-${Date.now()}`,
@@ -76,7 +99,11 @@ function AlertsScreen({ addTrigger }: { addTrigger?: number }) {
             <Select
               options={symbolOptions.length > 0 ? symbolOptions : [{ value: '', label: 'Add symbols to watchlist first' }]}
               value={symbol}
-              onValueChange={setSymbol}
+              error={symbolError}
+              onValueChange={(v) => {
+                setSymbol(v);
+                if (symbolError) setSymbolError(false);
+              }}
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -85,7 +112,16 @@ function AlertsScreen({ addTrigger }: { addTrigger?: number }) {
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] tracking-[-0.11px] text-text-dim">Target Price ($)</span>
-            <Input placeholder="0.00" type="number" value={targetPrice} onChange={(e) => setTargetPrice(e.target.value)} />
+            <Input
+              placeholder="0.00"
+              type="number"
+              value={targetPrice}
+              error={priceError}
+              onChange={(e) => {
+                setTargetPrice(e.target.value);
+                if (priceError) setPriceError(false);
+              }}
+            />
           </div>
           <div className="flex gap-3 mt-1.5">
             <Button variant="ghost" className="flex-1" onClick={() => setShowForm(false)}>Cancel</Button>
@@ -126,6 +162,12 @@ function AlertsScreen({ addTrigger }: { addTrigger?: number }) {
           {seenTriggeredAlerts.map((alert) => (
             <AlertRow key={alert.id} alert={alert} onDelete={() => handleDelete(alert.id)} />
           ))}
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-full max-w-[420px] px-3">
+          <Toast message={toast} variant="error" />
         </div>
       )}
     </>

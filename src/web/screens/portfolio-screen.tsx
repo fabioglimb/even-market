@@ -11,6 +11,7 @@ import { fetchPortfolioHistory, type PortfolioPeriod, type PortfolioValuePoint }
 import type { PortfolioHolding, AssetType } from '../../state/types';
 import { parsePortfolioImportFile } from '../lib/import-market-file';
 import { exportPortfolioFile, type MarketExportFormat } from '../lib/export-market-file';
+import { t } from '../../utils/i18n';
 
 function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrigger?: number; importTrigger?: number; exportTrigger?: number }) {
   const dispatch = useDispatch();
@@ -30,16 +31,19 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
   const [chartPeriod, setChartPeriod] = useState<PortfolioPeriod>('1M');
   const [chartData, setChartData] = useState<PortfolioValuePoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState(false);
   const fxRates = useSelector((s) => s.fxRates);
+  const lang = useSelector((s) => s.settings.language);
 
   // Fetch portfolio history when period or portfolio changes
   useEffect(() => {
-    if (portfolio.length === 0) { setChartData([]); return; }
+    if (portfolio.length === 0) { setChartData([]); setChartError(false); return; }
     let cancelled = false;
     setChartLoading(true);
+    setChartError(false);
     fetchPortfolioHistory(portfolio, chartPeriod, currency.displayCurrency, fxRates)
       .then((data) => { if (!cancelled) setChartData(data); })
-      .catch(() => { if (!cancelled) setChartData([]); })
+      .catch(() => { if (!cancelled) { setChartData([]); setChartError(true); } })
       .finally(() => { if (!cancelled) setChartLoading(false); });
     return () => { cancelled = true; };
   }, [chartPeriod, portfolio.length, currency.displayCurrency]);
@@ -221,6 +225,11 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
               onSelect={(p) => setChartPeriod(p as PortfolioPeriod)}
             />
           </div>
+          {chartError && !chartLoading && (
+            <div className="mb-3 rounded-[6px] bg-negative-alpha px-3 py-2 text-[11px] tracking-[-0.11px] text-negative">
+              {t('error.chartLoadFailed', lang)}
+            </div>
+          )}
           <PortfolioLineChart
             data={chartData}
             loading={chartLoading}

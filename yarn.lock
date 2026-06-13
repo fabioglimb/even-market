@@ -212,6 +212,11 @@
   resolved "https://registry.npmjs.org/@evenrealities/even_hub_sdk/-/even_hub_sdk-0.0.10.tgz"
   integrity sha512-95zmlbFzyyh+TxPz5Wq8Ix4IxUDZzo/WJWAUXPQ/83kaU8R78MOYYBgKDM47Yw61LoEn+Ob5GNLDu/T9bj85xA==
 
+"@evenrealities/pretext@^0.1.4":
+  version "0.1.4"
+  resolved "https://registry.npmjs.org/@evenrealities/pretext/-/pretext-0.1.4.tgz"
+  integrity sha512-gSZk/uxIhZW3geOM5bP1IS0s1sg7cA7KLLpBDgH9T1+ZNHMIFTMcgQN1qw4+/Xi/rcxsDsWZ7UZndIS/s4fRcA==
+
 "@fastify/busboy@^2.0.0":
   version "2.1.1"
   resolved "https://registry.npmjs.org/@fastify/busboy/-/busboy-2.1.1.tgz"
@@ -1040,11 +1045,12 @@ etag@1.8.1:
   resolved "https://registry.npmjs.org/etag/-/etag-1.8.1.tgz"
   integrity sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==
 
-even-toolkit@^1.7.2:
-  version "1.7.2"
-  resolved "https://registry.npmjs.org/even-toolkit/-/even-toolkit-1.7.2.tgz"
-  integrity sha512-SEHI2Ht4eMbne/6KWcRtfZNgroU4j4YMHwQuwvnAaPqrsYKDHMKtCNP3CY5HKUWzzQZqGe5Sem0PyA4VUmnFEw==
+even-toolkit@^1.7.5:
+  version "1.7.5"
+  resolved "https://registry.npmjs.org/even-toolkit/-/even-toolkit-1.7.5.tgz"
+  integrity sha512-FgMfJIXf8+QvU1/X6mvPzKl5AsGdl3asqHdyDFOVWxoZZcYHQPRAVPN69/iSWXzAJL7cf53lHEb9hNAk//27gQ==
   dependencies:
+    "@evenrealities/pretext" "^0.1.4"
     react-is "^19.2.4"
     recharts "^3.8.0"
 

@@ -103,26 +103,26 @@ export interface CoinSearchResult {
  * Search for coins by query string using CoinGecko search endpoint.
  * Returns up to 10 results.
  */
+/**
+ * Search for coins. Returns an empty array for "no results", but throws on a
+ * network/HTTP failure so callers can surface a search error to the user.
+ */
 export async function searchCoins(query: string): Promise<CoinSearchResult[]> {
   if (!query || query.length < 2) return [];
-  try {
-    const url = `${CG_BASE}/search?query=${encodeURIComponent(query)}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const coins: CoinSearchResult[] = (data.coins ?? []).slice(0, 10).map(
-      (c: { id: string; symbol: string; name: string; market_cap_rank: number | null; thumb: string }) => ({
-        id: c.id,
-        symbol: c.symbol?.toUpperCase() ?? '',
-        name: c.name ?? '',
-        market_cap_rank: c.market_cap_rank ?? null,
-        thumb: c.thumb ?? '',
-      }),
-    );
-    return coins;
-  } catch {
-    return [];
-  }
+  const url = `${CG_BASE}/search?query=${encodeURIComponent(query)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Coin search failed (${res.status})`);
+  const data = await res.json();
+  const coins: CoinSearchResult[] = (data.coins ?? []).slice(0, 10).map(
+    (c: { id: string; symbol: string; name: string; market_cap_rank: number | null; thumb: string }) => ({
+      id: c.id,
+      symbol: c.symbol?.toUpperCase() ?? '',
+      name: c.name ?? '',
+      market_cap_rank: c.market_cap_rank ?? null,
+      thumb: c.thumb ?? '',
+    }),
+  );
+  return coins;
 }
 
 /**

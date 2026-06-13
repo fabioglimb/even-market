@@ -167,6 +167,36 @@ const translations: Record<string, Record<MarketLanguage, string>> = {
     en: 'Symbol (e.g. AMZN)', it: 'Simbolo (es. AMZN)', es: 'Simbolo (ej. AMZN)', fr: 'Symbole (ex. AMZN)', de: 'Symbol (z.B. AMZN)',
     pt: 'Simbolo (ex. AMZN)', ja: '銘柄 (例: AMZN)', zh: '代码 (如 AMZN)', ko: '종목 (예: AMZN)', ru: 'Символ (напр. AMZN)',
   },
+
+  // Validation & error feedback
+  'validation.symbolRequired': {
+    en: 'Enter a symbol.', it: 'Inserisci un simbolo.', es: 'Ingresa un simbolo.', fr: 'Saisissez un symbole.', de: 'Symbol eingeben.',
+    pt: 'Insira um simbolo.', ja: '銘柄を入力してください。', zh: '请输入代码。', ko: '종목을 입력하세요.', ru: 'Введите символ.',
+  },
+  'validation.symbolSelect': {
+    en: 'Select a symbol.', it: 'Seleziona un simbolo.', es: 'Selecciona un simbolo.', fr: 'Selectionnez un symbole.', de: 'Symbol auswahlen.',
+    pt: 'Selecione um simbolo.', ja: '銘柄を選択してください。', zh: '请选择代码。', ko: '종목을 선택하세요.', ru: 'Выберите символ.',
+  },
+  'validation.quantityPositive': {
+    en: 'Quantity must be greater than 0.', it: 'La quantita deve essere maggiore di 0.', es: 'La cantidad debe ser mayor que 0.', fr: 'La quantite doit etre superieure a 0.', de: 'Menge muss groesser als 0 sein.',
+    pt: 'A quantidade deve ser maior que 0.', ja: '数量は0より大きくしてください。', zh: '数量必须大于0。', ko: '수량은 0보다 커야 합니다.', ru: 'Количество должно быть больше 0.',
+  },
+  'validation.costPositive': {
+    en: 'Cost must be greater than 0.', it: 'Il costo deve essere maggiore di 0.', es: 'El costo debe ser mayor que 0.', fr: 'Le cout doit etre superieur a 0.', de: 'Kosten muessen groesser als 0 sein.',
+    pt: 'O custo deve ser maior que 0.', ja: 'コストは0より大きくしてください。', zh: '成本必须大于0。', ko: '비용은 0보다 커야 합니다.', ru: 'Стоимость должна быть больше 0.',
+  },
+  'validation.pricePositive': {
+    en: 'Target price must be greater than 0.', it: 'Il prezzo obiettivo deve essere maggiore di 0.', es: 'El precio objetivo debe ser mayor que 0.', fr: 'Le prix cible doit etre superieur a 0.', de: 'Zielpreis muss groesser als 0 sein.',
+    pt: 'O preco alvo deve ser maior que 0.', ja: '目標価格は0より大きくしてください。', zh: '目标价格必须大于0。', ko: '목표 가격은 0보다 커야 합니다.', ru: 'Целевая цена должна быть больше 0.',
+  },
+  'error.searchFailed': {
+    en: 'Search failed. Check your connection and try again.', it: 'Ricerca non riuscita. Controlla la connessione e riprova.', es: 'Error en la busqueda. Revisa tu conexion e intentalo de nuevo.', fr: 'Echec de la recherche. Verifiez votre connexion et reessayez.', de: 'Suche fehlgeschlagen. Verbindung pruefen und erneut versuchen.',
+    pt: 'Falha na busca. Verifique sua conexao e tente novamente.', ja: '検索に失敗しました。接続を確認して再試行してください。', zh: '搜索失败。请检查网络后重试。', ko: '검색에 실패했습니다. 연결을 확인하고 다시 시도하세요.', ru: 'Поиск не удался. Проверьте подключение и повторите.',
+  },
+  'error.chartLoadFailed': {
+    en: 'Could not load chart data.', it: 'Impossibile caricare i dati del grafico.', es: 'No se pudieron cargar los datos del grafico.', fr: 'Impossible de charger les donnees du graphique.', de: 'Diagrammdaten konnten nicht geladen werden.',
+    pt: 'Nao foi possivel carregar os dados do grafico.', ja: 'チャートデータを読み込めませんでした。', zh: '无法加载图表数据。', ko: '차트 데이터를 불러올 수 없습니다.', ru: 'Не удалось загрузить данные графика.',
+  },
 }
 
 export function t(key: string, lang: MarketLanguage): string {

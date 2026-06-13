@@ -262,22 +262,22 @@ export interface YahooSearchResult {
 }
 
 /** Search Yahoo Finance for stocks, ETFs, forex, commodities */
+/**
+ * Search for symbols. Returns an empty array for "no results", but throws on a
+ * network/HTTP failure so callers can surface a search error to the user.
+ */
 export async function searchSymbols(query: string): Promise<YahooSearchResult[]> {
   if (query.length < 1) return [];
-  try {
-    const res = await proxyFetch(`${BASE_URL}/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=15&newsCount=0`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.quotes ?? []).map((q: any) => ({
-      symbol: q.symbol ?? '',
-      shortname: q.shortname ?? q.symbol ?? '',
-      longname: q.longname,
-      exchDisp: q.exchDisp,
-      typeDisp: q.typeDisp,
-    })).filter((r: YahooSearchResult) => r.symbol);
-  } catch {
-    return [];
-  }
+  const res = await proxyFetch(`${BASE_URL}/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=15&newsCount=0`);
+  if (!res.ok) throw new Error(`Symbol search failed (${res.status})`);
+  const data = await res.json();
+  return (data.quotes ?? []).map((q: any) => ({
+    symbol: q.symbol ?? '',
+    shortname: q.shortname ?? q.symbol ?? '',
+    longname: q.longname,
+    exchDisp: q.exchDisp,
+    typeDisp: q.typeDisp,
+  })).filter((r: YahooSearchResult) => r.symbol);
 }
 
 export function resolutionToRange(resolution: string): string {
