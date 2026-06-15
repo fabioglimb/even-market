@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { searchCoins } from '../../data/coingecko';
 import { detectAssetType } from '../../data/yahoo-finance';
 import type { AssetType, ChartResolution, GraphicEntry, PortfolioHolding } from '../../state/types';
@@ -113,41 +112,42 @@ function parseNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function splitTextLine(line: string): string[] {
-  const trimmed = line.trim();
-  if (!trimmed) return [];
-  if (trimmed.includes('\t')) return trimmed.split('\t').map((part) => part.trim());
-  if (trimmed.includes(';')) return trimmed.split(';').map((part) => part.trim());
-  if (trimmed.includes(',')) return trimmed.split(',').map((part) => part.trim());
-  return [trimmed];
+/** Split one delimited line (CSV/TSV/semicolon), honoring double-quoted fields. */
+function parseDelimitedLine(rawLine: string): string[] {
+  const line = rawLine.replace(/\r$/, '');
+  if (!line.trim()) return [];
+  const delimiter = line.includes('\t') ? '\t' : line.includes(';') ? ';' : ',';
+  const cells: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false;
+      } else cur += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delimiter) {
+      cells.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur.trim());
+  return cells;
 }
 
 async function readRows(file: File): Promise<Row[]> {
   const name = file.name.toLowerCase();
-
-  if (name.endsWith('.txt')) {
-    const text = await file.text();
-    return text
-      .split(/\r?\n/)
-      .map(splitTextLine)
-      .filter((row) => row.some(Boolean));
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    throw new Error('Excel files are not supported — please export as CSV.');
   }
-
-  const source = name.endsWith('.xlsx') || name.endsWith('.xls')
-    ? await file.arrayBuffer()
-    : await file.text();
-  const workbook = XLSX.read(source, { type: typeof source === 'string' ? 'string' : 'array' });
-  const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) return [];
-  const worksheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(worksheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-  });
-
-  return rows
-    .map((row) => row.map((cell) => normalizeText(cell)))
+  const text = await file.text();
+  return text
+    .split(/\r?\n/)
+    .map(parseDelimitedLine)
     .filter((row) => row.some(Boolean))
     .filter((row) => normalizeHeader(row[0]) !== 'sep');
 }

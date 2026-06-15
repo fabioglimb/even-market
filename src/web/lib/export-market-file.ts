@@ -1,7 +1,6 @@
-import * as XLSX from 'xlsx';
 import type { GraphicEntry, PortfolioHolding } from '../../state/types';
 
-export type MarketExportFormat = 'csv' | 'xlsx' | 'txt';
+export type MarketExportFormat = 'csv' | 'txt';
 export type MarketExportAction = 'shared' | 'downloaded';
 
 const WATCHLIST_HEADERS = ['symbol', 'resolution', 'assetType', 'geckoId', 'quoteCurrency'] as const;
@@ -47,9 +46,13 @@ function shareOrDownloadBlob(blob: Blob, filename: string): Promise<MarketExport
   return Promise.resolve('downloaded');
 }
 
+/** Serialize a cell for CSV, quoting when it contains a comma, quote, or newline. */
+function csvCell(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
 function makeDelimitedText(rows: string[][]): string {
-  const sheet = XLSX.utils.aoa_to_sheet(rows);
-  return XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' });
+  return rows.map((row) => row.map(csvCell).join(',')).join('\n');
 }
 
 function exportRows(prefix: string, headers: readonly string[], body: string[][], format: MarketExportFormat): Promise<{ filename: string; action: MarketExportAction }> {
@@ -57,21 +60,10 @@ function exportRows(prefix: string, headers: readonly string[], body: string[][]
   const filename = buildFilename(prefix, format);
   const rows = [Array.from(headers), ...body];
 
-  let blob: Blob;
-  if (format === 'xlsx') {
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.aoa_to_sheet(rows);
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
-    const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    blob = new Blob([array], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-  } else {
-    const text = makeDelimitedText(rows);
-    blob = new Blob([text], {
-      type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8',
-    });
-  }
+  const text = makeDelimitedText(rows);
+  const blob = new Blob([text], {
+    type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8',
+  });
 
   // Call share synchronously from the gesture — no awaits above this point
   return shareOrDownloadBlob(blob, filename).then((action) => ({ filename, action }));

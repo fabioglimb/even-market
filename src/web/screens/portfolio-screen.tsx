@@ -295,17 +295,17 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
       <Dialog open={showImport} onClose={() => !importing && setShowImport(false)} title="Import Portfolio">
         <div className="flex flex-col gap-3">
           <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
-            Import `.txt`, `.csv`, or `.xlsx` files. Required columns: `symbol`, `quantity`, and `avgCost`.
+            Import `.txt` or `.csv` files. Required columns: `symbol`, `quantity`, and `avgCost`.
           </p>
           <FileUpload
-            accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            accept=".txt,.csv,text/plain,text/csv"
             label={importing ? 'Importing...' : 'Drop a portfolio file or tap to browse'}
             onFiles={(files) => {
               if (!importing) void handleImport(files);
             }}
           />
           <p className="text-[11px] tracking-[-0.11px] text-text-muted leading-relaxed">
-            CSV/XLSX example: `symbol,quantity,avgCost,assetType`. Crypto rows can also include `geckoId`.
+            CSV example: `symbol,quantity,avgCost,assetType`. Crypto rows can also include `geckoId`.
           </p>
           {importError && (
             <div className="rounded-[6px] bg-negative-alpha px-3 py-2 text-[11px] tracking-[-0.11px] text-negative">
@@ -318,7 +318,7 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
       <Dialog open={showExport} onClose={() => setShowExport(false)} title="Export Portfolio">
         <div className="flex flex-col gap-3">
           <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
-            Export the full portfolio as `.txt`, `.csv`, or `.xlsx`. The file includes `symbol`, `quantity`, `avgCost`, `assetType`, `geckoId`, and `quoteCurrency`.
+            Export the full portfolio as `.txt` or `.csv`. The file includes `symbol`, `quantity`, `avgCost`, `assetType`, `geckoId`, and `quoteCurrency`.
           </p>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] tracking-[-0.11px] text-text-dim">Format</span>
@@ -327,7 +327,6 @@ function PortfolioScreen({ addTrigger, importTrigger, exportTrigger }: { addTrig
               onValueChange={(value) => setExportFormat(value as MarketExportFormat)}
               options={[
                 { value: 'csv', label: 'CSV (.csv)' },
-                { value: 'xlsx', label: 'Excel (.xlsx)' },
                 { value: 'txt', label: 'Text (.txt)' },
               ]}
             />

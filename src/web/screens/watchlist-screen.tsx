@@ -201,17 +201,17 @@ function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: num
       <Dialog open={showImport} onClose={() => !importing && setShowImport(false)} title="Import Watchlist">
         <div className="flex flex-col gap-3">
           <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
-            Import `.txt`, `.csv`, or `.xlsx` files. Supported columns: `symbol`, optional `resolution`, `assetType`, `geckoId`, and `quoteCurrency`.
+            Import `.txt` or `.csv` files. Supported columns: `symbol`, optional `resolution`, `assetType`, `geckoId`, and `quoteCurrency`.
           </p>
           <FileUpload
-            accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            accept=".txt,.csv,text/plain,text/csv"
             label={importing ? 'Importing...' : 'Drop a symbol file or tap to browse'}
             onFiles={(files) => {
               if (!importing) void handleImport(files);
             }}
           />
           <p className="text-[11px] tracking-[-0.11px] text-text-muted leading-relaxed">
-            TXT example: one symbol per line. CSV/XLSX example: `symbol,resolution,assetType`.
+            TXT example: one symbol per line. CSV example: `symbol,resolution,assetType`.
           </p>
           {importError && (
             <div className="rounded-[6px] bg-negative-alpha px-3 py-2 text-[11px] tracking-[-0.11px] text-negative">
@@ -224,7 +224,7 @@ function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: num
       <Dialog open={showExport} onClose={() => setShowExport(false)} title="Export Watchlist">
         <div className="flex flex-col gap-3">
           <p className="text-[13px] tracking-[-0.13px] text-text-dim leading-relaxed">
-            Export the full watchlist as `.txt`, `.csv`, or `.xlsx`. The file includes `symbol`, `resolution`, `assetType`, `geckoId`, and `quoteCurrency`.
+            Export the full watchlist as `.txt` or `.csv`. The file includes `symbol`, `resolution`, `assetType`, `geckoId`, and `quoteCurrency`.
           </p>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] tracking-[-0.11px] text-text-dim">Format</span>
@@ -233,7 +233,6 @@ function WatchlistScreen({ importTrigger, exportTrigger }: { importTrigger?: num
               onValueChange={(value) => setExportFormat(value as MarketExportFormat)}
               options={[
                 { value: 'csv', label: 'CSV (.csv)' },
-                { value: 'xlsx', label: 'Excel (.xlsx)' },
                 { value: 'txt', label: 'Text (.txt)' },
               ]}
             />

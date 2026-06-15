@@ -12,9 +12,15 @@
       "desc": "Fetches hosted market data, crypto data, and article content for ER Market.",
       "whitelist": [
         "https://even-market.vercel.app",
+        "https://g2hub.f3tch.net",
         "https://api.coingecko.com",
+        "https://www.coingecko.com",
         "https://even-browser.vercel.app",
-        "https://www.coingecko.com"
+        "https://react.dev",
+        "https://redux.js.org",
+        "https://redux-toolkit.js.org",
+        "https://bit.ly",
+        "http://www.w3.org"
       ]
     }
   ],
