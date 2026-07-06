@@ -56,7 +56,7 @@ function renderDisplayData(data: DisplayData): string {
 
 function getDesiredLayout(state: AppState): PageLayout {
   if (state.screen === 'splash') return 'splash';
-  if (state.screen === 'home') return 'home' as PageLayout;
+  if (state.screen === 'home') return 'main' as PageLayout;
   if (state.screen === 'stock-detail' || state.screen === 'portfolio-chart') return 'chart';
   if (state.screen === 'watchlist' || state.screen === 'overview') return 'columns';
   if (state.screen === 'portfolio') return 'split' as PageLayout;
@@ -90,7 +90,7 @@ async function ensureLayout(state: AppState): Promise<void> {
   if (desired === 'splash') return;
 
   if (state.screen === 'home') {
-    await hub.switchToHomeLayout(buildHomeText(state));
+    await hub.switchToMainLayout(buildHomeText(state));
   } else if (desired === 'chart') {
     const chartText = state.screen === 'portfolio-chart' ? buildPortfolioChartText(state) : buildChartTopText(state);
     await hub.switchToChartLayout(chartText);
@@ -129,10 +129,21 @@ async function flushText(state: AppState): Promise<void> {
 
     let updatePromise: Promise<void>;
     if (state.screen === 'home') {
-      updatePromise = hub.updateHomeText(buildHomeText(state));
+      updatePromise = hub.updateMainText(buildHomeText(state));
     } else if (hub.currentLayout === 'chart') {
       const chartText = state.screen === 'portfolio-chart' ? buildPortfolioChartText(state) : buildChartTopText(state);
       updatePromise = hub.updateChartText(chartText);
+      // Flush chart images now that layout is confirmed 'chart'
+      if (state.screen === 'portfolio-chart' && state.portfolioChartData.length > 0) {
+        const canvas = renderPortfolioLineChart(state.portfolioChartData);
+        flushChartImages(canvas).catch(() => { });
+      } else if (state.screen === 'stock-detail') {
+        const data = getDisplayData(state);
+        if (data.chartData && data.chartData.candles.length > 0) {
+          const canvas = renderToCanvasDirect(data);
+          flushChartImages(canvas).catch(() => { });
+        }
+      }
     } else if (hub.currentLayout === 'columns') {
       const columns = getColumnLayoutContent(state);
       updatePromise = columns ? hub.updateColumns(columns) : hub.updateText(buildFullText(state));
@@ -163,6 +174,7 @@ async function flushText(state: AppState): Promise<void> {
 // ── Chart image rendering (shared by stock-detail and portfolio-chart) ──
 
 let chartImgBusy = false;
+const tileHashes = new Map<string, number>();
 
 async function flushChartImages(canvas: OffscreenCanvas | HTMLCanvasElement): Promise<void> {
   if (!hub || !hub.pageReady) return;
@@ -173,6 +185,8 @@ async function flushChartImages(canvas: OffscreenCanvas | HTMLCanvasElement): Pr
     for (let i = 0; i < IMAGE_TILES.length; i++) {
       const tile = IMAGE_TILES[i]!;
       const enc = encodeTilesBatch(canvas as HTMLCanvasElement, [tile], G2_IMAGE_MAX_W, G2_IMAGE_MAX_H)[0]!;
+      if (tileHashes.get(tile.name) === enc.hash) continue;
+      tileHashes.set(tile.name, enc.hash);
       await hub.sendImage(tile.id, tile.name, enc.bytes);
     }
   } catch { /* ignore */ }
@@ -200,19 +214,6 @@ async function fetchAndRenderPortfolioChart(): Promise<void> {
 function flushDisplay(state: AppState): void {
   if (glassAlertToastActive) return;
   flushText(state).catch(() => { });
-
-  if (hub?.currentLayout === 'chart') {
-    if (state.screen === 'portfolio-chart' && state.portfolioChartData.length > 0) {
-      const canvas = renderPortfolioLineChart(state.portfolioChartData);
-      flushChartImages(canvas).catch(() => { });
-    } else if (state.screen === 'stock-detail') {
-      const data = getDisplayData(state);
-      if (data.chartData && data.chartData.candles.length > 0) {
-        const canvas = renderToCanvasDirect(data);
-        flushChartImages(canvas).catch(() => { });
-      }
-    }
-  }
 }
 
 // ── Text builders ──
@@ -1136,7 +1137,7 @@ export async function initGlassesRenderer(): Promise<void> {
     hub = sdkHub;
     store.dispatch({ type: 'CONNECTION_STATUS', status: 'connected' });
 
-    await hub.showHomePage(buildHomeText(store.getState()));
+    await hub.showMainPage(buildHomeText(store.getState()));
 
     hub.onEvent((event) => {
       if (glassAlertToastActive) {
@@ -1153,7 +1154,7 @@ export async function initGlassesRenderer(): Promise<void> {
       if (action) store.dispatch(action);
     });
 
-    // Now dispatch — subscriber won't rebuild since layout is already 'home'
+    // Now dispatch — subscriber won't rebuild since layout is already 'main'
     store.dispatch({ type: 'APP_INIT' });
 
   }).catch(() => { });

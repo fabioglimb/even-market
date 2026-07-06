@@ -43,4 +43,5 @@ export type Action =
   | { type: 'PORTFOLIO_CHART_LOADED'; data: Array<{ time: number; value: number }> }
   | { type: 'PORTFOLIO_CHART_PERIOD'; period: import('./types').PortfolioChartPeriod }
   | { type: 'TOGGLE_FAVORITE'; symbol: string }
-  | { type: 'FAVORITES_LOADED'; symbols: string[] };
+  | { type: 'FAVORITES_LOADED'; symbols: string[] }
+;
