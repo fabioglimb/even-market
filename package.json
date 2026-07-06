@@ -15,11 +15,11 @@
     "@evenrealities/even_hub_sdk": "^0.0.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "even-toolkit": "file:../even-toolkit",
+    "even-toolkit": "^1.7.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-is": "^19.2.4",
-    "react-router": "^7.13.1",
+    "react-router": "^7.15.1",
     "tailwind-merge": "^3.5.0",
     "upng-js": "^2.1.0"
   },

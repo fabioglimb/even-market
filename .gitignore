@@ -1,6 +1,7 @@
 node_modules
 dist
 *.ehpk
+.DS_Store
 
 app.json
 CLAUDE.md
